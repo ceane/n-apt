@@ -41,6 +41,7 @@ import { fileRegistry } from "@n-apt/app/infrastructure/io/fileRegistry";
 import type { StitchState } from "@n-apt/redux/slices/waterfallSlice";
 import { DecryptionFallback } from "@n-apt/ui/DecryptionFallback";
 import { useAuthentication } from "@n-apt/app/hooks/useAuthentication";
+import { useOfflinePlayback } from "@n-apt/app/hooks/OfflinePlaybackContext";
 import type { AppStyledTheme } from "@n-apt/ui/Theme";
 import { composeWaterfallCanvasWithDbAxis } from "@n-apt/layout/rendering/waterfallDbAxis";
 
@@ -229,13 +230,9 @@ const FFTPlaybackCanvas = forwardRef<FFTCanvasHandle, FFTPlaybackCanvasProps>(
           colors?: Partial<AppStyledTheme["colors"]>;
         })
       | undefined;
-    const {
-      authState,
-      isAuthenticated,
-      fidoVaultKey,
-      handleFidoKeyAuth,
-    } = useAuthentication();
-    const offlineFileOnly = !isAuthenticated && authState === "server_down";
+    const { isAuthenticated, fidoVaultKey, handleFidoKeyAuth } =
+      useAuthentication();
+    const { enabled: offlineFileOnly } = useOfflinePlayback();
     const [fidoUnlockPending, setFidoUnlockPending] = useState(false);
     const [fidoUnlockError, setFidoUnlockError] = useState<string | null>(null);
 

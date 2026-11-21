@@ -217,7 +217,6 @@ export const OfflineCaptureUnlock: React.FC<OfflineCaptureUnlockProps> = ({
     lock,
   } = useOfflinePlayback();
   const [password, setPassword] = useState("");
-  const [increaseProtection, setIncreaseProtection] = useState(false);
   const [salt, setSalt] = useState("");
   const [busy, setBusy] = useState(false);
   const [localError, setLocalError] = useState<string | null>(null);
@@ -228,13 +227,13 @@ export const OfflineCaptureUnlock: React.FC<OfflineCaptureUnlockProps> = ({
   const requiresSalt = selectedFiles.some((file) =>
     file.name.toLowerCase().endsWith(".enc"),
   );
+  const hasSelectedFile = selectedFiles.length > 0;
 
   useEffect(() => {
     lock();
     setPassword("");
     setSalt("");
     setLocalError(null);
-    setIncreaseProtection(requiresSalt);
     // A new file selection always needs fresh credentials.
   }, [selectedIdentity, requiresSalt, lock]);
 
@@ -246,8 +245,7 @@ export const OfflineCaptureUnlock: React.FC<OfflineCaptureUnlockProps> = ({
       if (selectedFiles.length === 0) {
         throw new Error("Choose a capture file first.");
       }
-      const captureSalt =
-        increaseProtection || requiresSalt ? parseCaptureSalt(salt) : null;
+      const captureSalt = requiresSalt ? parseCaptureSalt(salt) : null;
       const { key, mode } = await unlockWithPassword(selectedFiles, password);
       setUnlockedKey(key, mode, captureSalt);
       setPassword("");
@@ -330,7 +328,14 @@ export const OfflineCaptureUnlock: React.FC<OfflineCaptureUnlockProps> = ({
         color: "var(--color-text-primary, #f5f5f5)",
       }}
     >
-      <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: 6,
+          opacity: hasSelectedFile ? 1 : 0.45,
+        }}
+      >
         <strong style={{ fontSize: 12 }}>Unlock capture</strong>
         <span
           title="Regular encrypted captures use their capture password. FIDO-vault captures use the vault recovery password here, or the enrolled security key below. Increased Protection .enc files also need their 32-byte capture salt."
@@ -341,7 +346,14 @@ export const OfflineCaptureUnlock: React.FC<OfflineCaptureUnlockProps> = ({
         </span>
       </div>
 
-      <p style={{ margin: 0, fontSize: 11, color: "var(--color-text-secondary, #bbb)" }}>
+      <p
+        style={{
+          margin: 0,
+          fontSize: 11,
+          color: "var(--color-text-secondary, #bbb)",
+          opacity: hasSelectedFile ? 1 : 0.45,
+        }}
+      >
         {statusCopy[status]}
       </p>
 
@@ -354,11 +366,13 @@ export const OfflineCaptureUnlock: React.FC<OfflineCaptureUnlockProps> = ({
             type="password"
             value={password}
             onChange={(event) => setPassword(event.target.value)}
-            disabled={busy}
+            disabled={busy || !hasSelectedFile}
             style={{
               width: "100%",
               boxSizing: "border-box",
               padding: "8px 9px",
+              opacity: hasSelectedFile ? 1 : 0.55,
+              cursor: hasSelectedFile ? "text" : "not-allowed",
               color: "var(--color-text-primary, #f5f5f5)",
               background: "var(--color-background, #151515)",
               border: "1px solid var(--color-border, #454545)",
@@ -370,11 +384,10 @@ export const OfflineCaptureUnlock: React.FC<OfflineCaptureUnlockProps> = ({
         <label style={{ display: "flex", alignItems: "center", gap: 7, fontSize: 11 }}>
           <input
             type="checkbox"
-            checked={increaseProtection || requiresSalt}
-            disabled={busy || requiresSalt}
-            onChange={(event) => setIncreaseProtection(event.target.checked)}
+            checked={requiresSalt}
+            disabled
           />
-          Increase protection
+          Has increased protection?
           <span
             title="Enter the 32-byte per-capture salt supplied with an Increased Protection .enc capture."
             aria-label="About Increased Protection salt"
@@ -384,7 +397,7 @@ export const OfflineCaptureUnlock: React.FC<OfflineCaptureUnlockProps> = ({
           </span>
         </label>
 
-        {(increaseProtection || requiresSalt) && (
+        {requiresSalt && (
           <label style={{ display: "grid", gap: 4, fontSize: 11 }}>
             Capture salt (64-character hex)
             <input
@@ -393,7 +406,7 @@ export const OfflineCaptureUnlock: React.FC<OfflineCaptureUnlockProps> = ({
               inputMode="text"
               value={salt}
               onChange={(event) => setSalt(event.target.value)}
-              disabled={busy}
+              disabled={busy || !hasSelectedFile}
               placeholder="Paste the 64-character salt"
               style={{
                 width: "100%",
@@ -409,7 +422,11 @@ export const OfflineCaptureUnlock: React.FC<OfflineCaptureUnlockProps> = ({
           </label>
         )}
 
-        <Button type="submit" $variant="primary" disabled={busy}>
+        <Button
+          type="submit"
+          $variant="primary"
+          disabled={busy || !hasSelectedFile}
+        >
           {busy ? "Unlocking…" : "Decrypt with password"}
         </Button>
       </form>
@@ -434,7 +451,7 @@ export const OfflineCaptureUnlock: React.FC<OfflineCaptureUnlockProps> = ({
         type="button"
         $variant="secondary"
         onClick={() => void runFidoUnlock()}
-        disabled={busy || requiresSalt}
+        disabled={busy || !hasSelectedFile || requiresSalt}
         title={
           requiresSalt
             ? "Increased Protection captures require their password and capture salt."

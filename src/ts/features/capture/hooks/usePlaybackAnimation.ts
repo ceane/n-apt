@@ -163,7 +163,7 @@ export const usePlaybackAnimation = ({
             currentFftSizeRef.current,
             updates,
           );
-          if (!frame && iqFrameOffsetRef.current !== 0) {
+          if (!frame) {
             iqFrameOffsetRef.current = 0;
             frameUpdateIndexRef.current = 0;
             playbackMetadataRef.current = {

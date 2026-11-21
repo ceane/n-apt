@@ -9,8 +9,21 @@ import {
 } from "@n-apt/spectrum/utils/stitchSessionCache";
 import { fileWorkerManager } from "@n-apt/workers/fileWorkerManager";
 
+const mockOfflinePlayback: any = {
+  enabled: false,
+  key: null,
+  mode: null,
+  captureSalt: null,
+  markDecrypted: jest.fn(),
+  setError: jest.fn(),
+};
+
 jest.mock("@n-apt/app/hooks/useAuthentication", () => ({
   useAuthentication: () => ({ aesKey: null }),
+}));
+
+jest.mock("@n-apt/app/hooks/OfflinePlaybackContext", () => ({
+  useOfflinePlayback: () => mockOfflinePlayback,
 }));
 
 jest.mock("@n-apt/workers/fileWorkerManager", () => ({
@@ -113,6 +126,12 @@ describe("useStitchingLogic cached restoration", () => {
 describe("useStitchingLogic automatic processing", () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    Object.assign(mockOfflinePlayback, {
+      enabled: false,
+      key: null,
+      mode: null,
+      captureSalt: null,
+    });
   });
 
   it("coalesces file-selection and auto-process triggers for the same file", async () => {
@@ -134,6 +153,59 @@ describe("useStitchingLogic automatic processing", () => {
     const { rerender } = render(<Stitcher {...emptyProps} />);
     await act(async () => {
       rerender(<Stitcher {...nextProps} />);
+    });
+
+    expect(fileWorkerManager.stitchFiles).toHaveBeenCalledTimes(1);
+  });
+
+  it("processes a guest capture once after unlock despite callback rerenders", async () => {
+    const file = { id: "guest-capture", name: "guest.iq" };
+    const stitchResult = {
+      stitchedData: new Uint8Array([1]),
+      fileDataCache: [],
+      freqMap: [],
+      metadataMap: [["guest.iq", { channels_data: [] }]],
+      precomputedFrames: [],
+      maxFrames: 0,
+      channels: [],
+      range: { min: 0, max: 1 },
+    };
+    (fileWorkerManager.stitchFiles as jest.Mock).mockResolvedValue(
+      stitchResult,
+    );
+    mockOfflinePlayback.enabled = true;
+    let shouldForceOneRender = true;
+
+    function Stitcher() {
+      const [, setRenderCount] = React.useState(0);
+      useStitchingLogic({
+        selectedFiles: [file],
+        stitchTrigger: null,
+        stitchSourceSettings: { gain: 0, ppm: 0 },
+        fftSize: 2,
+        onChannelsChange: () => {
+          if (shouldForceOneRender) {
+            shouldForceOneRender = false;
+            setRenderCount((count) => count + 1);
+          }
+        },
+        onProcessedDataChange: () => undefined,
+      });
+      return null;
+    }
+
+    const { rerender } = render(<Stitcher />);
+    expect(fileWorkerManager.stitchFiles).not.toHaveBeenCalled();
+
+    mockOfflinePlayback.key = {} as CryptoKey;
+    mockOfflinePlayback.mode = "password";
+    await act(async () => {
+      rerender(<Stitcher />);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    await act(async () => {
+      rerender(<Stitcher />);
     });
 
     expect(fileWorkerManager.stitchFiles).toHaveBeenCalledTimes(1);

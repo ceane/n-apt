@@ -893,7 +893,9 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
   );
 
   const { authState, isAuthenticated, sessionToken, aesKey } = useAuthentication();
-  const offlineFileOnly = !isAuthenticated && authState === "server_down";
+  const offlineFileOnly =
+    !isAuthenticated &&
+    (authState === "server_down" || fileSelectionSourceRequested);
   useEffect(() => {
     if (!offlineFileOnly) return;
     if (sourceMode !== "file") dispatch(setSourceMode("file"));
@@ -3096,6 +3098,8 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
           />
         </StickyHeaderWrapper>
 
+        <OfflineCaptureUnlock selectedFiles={selectedFiles} />
+
         <FileSelectionSidebar
           selectedFiles={selectedFiles}
           onSelectedFilesChange={(files) => dispatch(setSelectedFiles(files))}
@@ -3112,7 +3116,6 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
           showMetadata={false}
         />
 
-        <OfflineCaptureUnlock selectedFiles={selectedFiles} />
       </SidebarContent>
     );
   }

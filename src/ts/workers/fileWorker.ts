@@ -341,19 +341,20 @@ async function loadIqFile(
           : "IQ v3 file is encrypted",
       );
     }
+    const decryptParams: AesGcmParams = {
+      name: "AES-GCM",
+      iv: payload.slice(0, 12),
+    };
+    if ((metadata as any).payload_authentication === "public-sections-v1") {
+      const aad = await captureAdditionalData(
+        new Uint8Array(fileData),
+        payloadStart,
+        payloadLength,
+      );
+      decryptParams.additionalData = new Uint8Array(aad.slice(0));
+    }
     const plain = await crypto.subtle.decrypt(
-      {
-        name: "AES-GCM",
-        iv: payload.slice(0, 12),
-        additionalData:
-          (metadata as any).payload_authentication === "public-sections-v1"
-            ? await captureAdditionalData(
-                new Uint8Array(fileData),
-                payloadStart,
-                payloadLength,
-              )
-            : undefined,
-      },
+      decryptParams,
       decryptionKey,
       payload.slice(12),
     );
@@ -446,8 +447,8 @@ async function decryptCaptureProtectionEnvelope(
   }
 
   const vaultKey = new Uint8Array(rawVaultKey);
-  let prk: Uint8Array | null = null;
-  let captureKeyBytes: Uint8Array | null = null;
+  let prk: Uint8Array<ArrayBuffer> | null = null;
+  let captureKeyBytes: Uint8Array<ArrayBuffer> | null = null;
   try {
     const extractKey = await crypto.subtle.importKey(
       "raw",
@@ -696,6 +697,11 @@ async function decryptNaptPayloadAtOffsets(
     const encryptedView = new Uint8Array(fileData, hSize);
     const iv = encryptedView.subarray(0, 12);
     const ciphertext = encryptedView.subarray(12);
+    const payloadParams: AesGcmParams = { name: "AES-GCM", iv };
+    if (additionalData !== undefined) {
+      // Make a local byte view immediately before WebCrypto consumes the AAD.
+      payloadParams.additionalData = new Uint8Array(additionalData.slice(0));
+    }
 
     try {
       if (wrappedDekBase64) {
@@ -721,7 +727,7 @@ async function decryptNaptPayloadAtOffsets(
         );
 
         return await crypto.subtle.decrypt(
-          { name: "AES-GCM", iv: iv as any, additionalData },
+          payloadParams,
           dek as CryptoKey,
           ciphertext as any,
         );
@@ -729,7 +735,7 @@ async function decryptNaptPayloadAtOffsets(
 
       // Default: direct decryption with vault key
       return await crypto.subtle.decrypt(
-        { name: "AES-GCM", iv: iv as any, additionalData },
+        payloadParams,
         aesKey,
         ciphertext as any,
       );
@@ -1241,8 +1247,7 @@ self.onmessage = async function (e) {
             lastError = error;
             if (
               error.name === "OperationError" ||
-              error.message?.includes("OperationError") ||
-              error.message?.includes("decrypt")
+              error.message?.includes("OperationError")
             ) {
               decryptionErrorCount++;
             }

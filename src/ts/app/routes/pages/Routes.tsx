@@ -165,10 +165,13 @@ const AppShellLayout: React.FC = () => {
   const pageRef = useRef<HTMLDivElement | null>(null);
   const path = location.pathname;
   const { authState, isAuthenticated } = useAuthentication();
+  const fileSelectionRoute =
+    (path === "/" || path === "/visualizer") &&
+    new URLSearchParams(location.search).get("source") === "fileSelection";
   const isOfflineFilePlayback =
-    path === "/visualizer" &&
     !isAuthenticated &&
-    authState === "server_down";
+    (fileSelectionRoute ||
+      (path === "/visualizer" && authState === "server_down"));
   const isPreferences = path === "/prefs";
   const requestedPreferencesSectionId = isPreferences
     ? new URLSearchParams(location.search).get("section")

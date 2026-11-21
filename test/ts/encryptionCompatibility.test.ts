@@ -1,5 +1,6 @@
 import crypto from "node:crypto";
 import { encodeNaptCaptureV4 } from "@n-apt/webusb/iqCaptureFormat";
+import { NAPT_FORMAT_VERSION } from "@n-apt/webusb/iqIntegrity";
 import { computeHmac, deriveRawKey } from "@n-apt/crypto/webcrypto";
 import {
   getIqFrameAtOffset,
@@ -318,7 +319,7 @@ describe("encryption compatibility through the capture reader", () => {
     );
   });
 
-  it("decrypts V6 writer output and legacy V3 NAPT with the unchanged vault key, then plays three frames", async () => {
+  it("decrypts current writer output and legacy V3 NAPT with the unchanged vault key, then plays three frames", async () => {
     const rawKey = await deriveRawKey(password);
     const currentCapture = await encodeNaptCaptureV4({
       metadata,
@@ -344,7 +345,7 @@ describe("encryption compatibility through the capture reader", () => {
 
     const current = await workerResult(
       currentCapture,
-      "current-v6.napt",
+      "current.napt",
       rawKey,
     );
     const legacy = await workerResult(legacyCapture, "legacy-v3.napt", rawKey);
@@ -352,7 +353,12 @@ describe("encryption compatibility through the capture reader", () => {
     expect(current?.type).toBe("result");
     expect(current.data.metadataMap[0][1].encrypted).toBe(true);
     expect(current.data.fileDataCache[0][1]).toEqual(iqBytes);
-    expect(current.data.metadataMap[0][1].format_version).toBe(6);
+    expect(current.data.metadataMap[0][1].format_version).toBe(
+      NAPT_FORMAT_VERSION,
+    );
+    expect(current.data.metadataMap[0][1].payload_authentication).toBe(
+      "public-sections-v1",
+    );
     const playbackUpdates = current.data.metadataMap[0][1].frame_updates;
     for (const [frameIndex, byteOffset] of [0, 4, 8].entries()) {
       const frame = getIqFrameAtOffset(
@@ -373,7 +379,7 @@ describe("encryption compatibility through the capture reader", () => {
     const wrongKey = await deriveRawKey("incorrect-passphrase");
     const rejected = await workerResult(
       currentCapture,
-      "current-v6.napt",
+      "current.napt",
       wrongKey,
     );
     expect(rejected?.type).toBe("error");

@@ -62,7 +62,10 @@ export const captureAdditionalData = async (
   context.set(bytes.subarray(0, offset));
   context.set(bytes.subarray(offset + length), offset);
   context.set(encoder.encode(PLACEHOLDER), digestOffset - length);
-  return crypto.subtle.digest("SHA-256", context.buffer);
+  const digest = await crypto.subtle.digest("SHA-256", context.buffer);
+  // Return an owned, plain ArrayBuffer. Some WebCrypto implementations reject
+  // typed-array views passed through worker crypto params as additionalData.
+  return new Uint8Array(digest).slice().buffer as ArrayBuffer;
 };
 
 export const stampIntegrity = async (
