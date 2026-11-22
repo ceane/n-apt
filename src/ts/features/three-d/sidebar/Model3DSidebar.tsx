@@ -21,7 +21,7 @@ import {
 } from "@n-apt/learn";
 import { HotspotEditorSection } from "@n-apt/draw-signal";
 import { useModel3D } from "@n-apt/three-d/hooks/useModel3D";
-import { Collapsible, SidebarSubsectionList } from "@n-apt/ui";
+import { Collapsible, SidebarSubsectionList, Tooltip } from "@n-apt/ui";
 import {
   MODEL_CAMERA_POSITION,
   MODEL_CAMERA_TARGET,
@@ -88,6 +88,27 @@ const SectionDescription = styled.div`
   color: ${(props) => props.theme.textSecondary};
   margin-bottom: 16px;
   grid-column: 1 / -1;
+`;
+
+const EffectCard = styled.div`
+  display: grid;
+  gap: 6px;
+  grid-column: 1 / -1;
+  padding: 11px 12px;
+  border: 1px solid ${(props) => props.theme.border};
+  border-radius: 8px;
+  background: ${(props) => props.theme.surface};
+  color: ${(props) => props.theme.textPrimary};
+`;
+
+const EffectCardTitle = styled.strong`
+  font-size: 12px;
+`;
+
+const EffectCardText = styled.span`
+  font-size: 11px;
+  line-height: 1.45;
+  color: ${(props) => props.theme.textSecondary};
 `;
 
 const SearchWrap = styled.label`
@@ -429,6 +450,45 @@ export const Model3DSidebar: React.FC = () => {
 
         <Collapsible icon={<NotebookPen size={16} />} label="Effects /">
           <SectionDescription>Visual effects and overlays.</SectionDescription>
+          <SidebarSubsectionList aria-label="Effects subsections">
+            {[
+              "State of Mind",
+              "Perception and Vision",
+              "Spatial Disruption & AR",
+              "Emotions",
+              "Heart",
+              "Speech & Vocals",
+              "Discomfort and Nausea",
+              "Paralysis",
+              "Breathing",
+              "Mouth and Throat",
+              "Haptics & Violence",
+              "Override of Voluntary Control",
+              "Override of Psychology",
+              "SA",
+              "Choreography & Narration",
+            ].map((label) => (
+              <Collapsible
+                key={label}
+                label={label}
+                sectionId={`effects-${label.toLowerCase().replace(/\s+/g, "-")}`}
+              >
+                {(label === "Override of Voluntary Control" || label === "Override of Psychology") ? (
+                  <EffectCard>
+                    <EffectCardTitle>Misfire</EffectCardTitle>
+                    <EffectCardText>Lorem ipsum dolor sit amet.</EffectCardText>
+                  </EffectCard>
+                ) : (
+                  <SectionDescription>Content will be added here.</SectionDescription>
+                )}
+                {label === "SA" && (
+                  <SectionDescription>
+                    <Tooltip title="SA" content="Sexual assault" />
+                  </SectionDescription>
+                )}
+              </Collapsible>
+            ))}
+          </SidebarSubsectionList>
         </Collapsible>
 
         <Collapsible
