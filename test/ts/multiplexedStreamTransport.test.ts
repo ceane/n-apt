@@ -14,6 +14,47 @@ describe("multiplexed stream transport", () => {
     jest.clearAllMocks();
   });
 
+  it("sends an early Mock Tx preview request after subscribing on open", () => {
+    const socket = {
+      readyState: WebSocket.CONNECTING as number,
+      send: jest.fn(),
+      close: jest.fn(),
+      onopen: null as (() => void) | null,
+    };
+    const transport = createMultiplexedStreamTransport({
+      url: "ws://localhost/ws",
+      aesKey: {} as CryptoKey,
+      webSocketFactory: () => socket as unknown as WebSocket,
+    });
+    const stream: StreamKey = { sourceId: "mock-tx", mode: "tx" };
+    const subscription = transport.transportFactory(stream, () => undefined);
+    const scope = "subscriber" as const;
+    const subscriptionId = "mock-tx-preview";
+    subscription.send({
+      type: "stream_subscribe",
+      scope,
+      subscriptionId,
+      stream,
+      options: {
+        mode: "tx",
+        centerFrequencyHz: 137_100_000,
+        sampleRateHz: 3_200_000,
+        bandwidthHz: 1_000_000,
+        signal: "wifi",
+        powerDbm: -18,
+        ifftSize: 1024,
+      },
+    });
+    subscription.send({ type: "stream_request_frame", scope, subscriptionId, stream });
+
+    expect(socket.send).not.toHaveBeenCalled();
+    socket.readyState = WebSocket.OPEN;
+    socket.onopen?.();
+    expect(socket.send.mock.calls.map(([message]) => JSON.parse(message).type))
+      .toEqual(["stream_subscribe", "stream_request_frame"]);
+    transport.dispose();
+  });
+
   it("preserves the applied options revision on the raw frame", async () => {
     (decryptPayloadBytes as jest.Mock).mockResolvedValueOnce(Uint8Array.from([1, 2]));
     const options = { mode: "rx", centerFrequencyHz: 1_610_000, sampleRateHz: 3_200_000, fftSize: 4096, fftWindow: "hann", frameRate: 25 };

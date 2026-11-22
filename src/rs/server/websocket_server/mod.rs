@@ -1515,7 +1515,6 @@ impl WebSocketServer {
       // applied. Retry it on the next loop once the source acknowledges those
       // options; failed attempts leave the request token armed.
       if !crate::safety::TX_TRANSMITTING.load(Ordering::Relaxed)
-        && shared_state.paused_frame_request_owner().is_some()
         && matches!(
           tx_worker.try_publish_standby_preview(),
           crate::tx::monitor::StandbyPreviewOutcome::Published

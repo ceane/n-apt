@@ -1603,7 +1603,9 @@ async fn handle_stream_connection(
             // Wake the acquisition worker even when every managed subscriber
             // is paused. The worker consumes the token for one fresh frame;
             // delivery remains scoped to the requesting subscriber.
-            if stream.mode == super::stream_manager::StreamMode::Tx {
+            if stream.mode == super::stream_manager::StreamMode::Tx
+              && stream.source_id != "mock-tx"
+            {
               // Tx standby has no acquisition worker of its own. Let the
               // TxWorker consume the same source-owned request so a managed
               // stream receives exactly one preview through the Tx frame bus.
