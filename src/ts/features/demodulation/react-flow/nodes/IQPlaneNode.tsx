@@ -1,37 +1,31 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import styled from "styled-components";
 import { useAppSelector } from "@n-apt/redux";
 import { selectActiveSourceDerivedState } from "@n-apt/redux/selectors/performanceSelectors";
+import { formatFrequency } from "@n-apt/math/frequency";
+import { fileFrameRuntime } from "@n-apt/app/infrastructure/visualization/frameRuntime";
+import { useActivePresentationFrameRef } from "@n-apt/app/infrastructure/visualization/useActivePresentationFrame";
 import {
-  fileFrameRuntime,
-  liveFrameRuntime,
-} from "@n-apt/app/infrastructure/visualization/frameRuntime";
+  configureCanvasForDpr,
+  formatSampleRate,
+  projectIqSamples,
+  resolveIqPlaneMetadata,
+  type IqPlaneMetadata,
+} from "./iqPlanePlot";
 
 type IQFrame = {
   iq_data?: Uint8Array | null;
   sample_rate?: number | null;
+  center_frequency_hz?: number | null;
 };
 
 interface IQPlaneNodeProps {
   data?: { label?: React.ReactNode };
 }
 
-const NODE_WIDTH = 760;
-const NODE_HEIGHT = 520;
-const WINDOW_SAMPLES = 100;
-const MAX_TRACE_POINTS = 256;
-const FREQUENCY_BINS = [-40, -30, -20, -10, 0, 10, 20, 30, 40] as const;
-const TRACE_COLORS = [
-  "#50d7ff",
-  "#68e0b2",
-  "#a3e563",
-  "#ffd166",
-  "#ff9f68",
-  "#ff6f91",
-  "#d18cff",
-  "#8f9bff",
-  "#72b7ff",
-];
+const NODE_WIDTH = 560;
+const NODE_HEIGHT = 400;
+const MAX_PLOTTED_SAMPLES = 1200;
 
 const OuterContainer = styled.div`
   display: flex;
@@ -49,12 +43,19 @@ const OuterContainer = styled.div`
 
 const Header = styled.div`
   display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 4px;
+  background: ${({ theme }) => theme.colors.surface};
+  padding: 6px 12px;
+  border-bottom: 1px solid ${({ theme }) => theme.colors.border};
+`;
+
+const HeaderTop = styled.div`
+  display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 10px;
-  background: ${({ theme }) => theme.colors.surface};
-  padding: 8px 12px;
-  border-bottom: 1px solid ${({ theme }) => theme.colors.border};
 `;
 
 const Title = styled.div`
@@ -69,6 +70,42 @@ const SourceLabel = styled.div`
   color: ${({ theme }) => theme.colors.textSecondary};
   font-size: 10px;
   white-space: nowrap;
+`;
+
+const SourceMetadata = styled.div`
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 2px;
+  min-width: 0;
+`;
+
+const RangeLegend = styled.div`
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+  color: ${({ theme }) => theme.colors.textSecondary};
+  font-size: 9px;
+  line-height: 1;
+  white-space: nowrap;
+`;
+
+const RangeLine = styled.span`
+  position: relative;
+  width: 34px;
+  height: 1px;
+  background: ${({ theme }) => theme.colors.textSecondary};
+
+  &::after {
+    position: absolute;
+    top: -3px;
+    left: 50%;
+    width: 1px;
+    height: 7px;
+    background: ${({ theme }) => theme.colors.textSecondary};
+    content: "";
+  }
 `;
 
 const Plot = styled.div`
@@ -102,41 +139,96 @@ const latestFrame = (value: unknown): IQFrame | null => {
 export const IQPlaneNode: React.FC<IQPlaneNodeProps> = ({ data }) => {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const hasIqRef = useRef(false);
+  const lastMetadataKeyRef = useRef("");
+  const sampleCountRef = useRef<number | null>(null);
   const [hasIq, setHasIq] = useState(false);
+  const [sampleCount, setSampleCount] = useState<number | null>(null);
+  const [frameMetadata, setFrameMetadata] = useState<IqPlaneMetadata>({
+    sampleRateHz: null,
+    centerFrequencyHz: null,
+  });
   const sourceMode = useAppSelector((state) => state.waterfall.sourceMode);
   const sourceDerived = useAppSelector(selectActiveSourceDerivedState);
+  const activeLiveFrameRef = useActivePresentationFrameRef();
   const deviceName = sourceDerived.deviceName || "I/Q source";
-  const sourceRef = useMemo(
-    () => (sourceMode === "file" ? fileFrameRuntime.ref : liveFrameRuntime.ref),
-    [sourceMode],
-  );
+  const sourceMetadata = {
+    sampleRateHz: sourceDerived.sampleRateHz,
+    centerFrequencyHz: sourceDerived.sdrSettings?.center_frequency ?? null,
+  };
+  const displayedMetadata = {
+    sampleRateHz: frameMetadata.sampleRateHz ?? sourceMetadata.sampleRateHz,
+    centerFrequencyHz:
+      frameMetadata.centerFrequencyHz ?? sourceMetadata.centerFrequencyHz,
+  };
+  const centerFrequencyLabel =
+    typeof displayedMetadata.centerFrequencyHz === "number" &&
+    Number.isFinite(displayedMetadata.centerFrequencyHz) &&
+    displayedMetadata.centerFrequencyHz > 0
+      ? formatFrequency(displayedMetadata.centerFrequencyHz, {
+          precisionMHz: 3,
+          precisionGHz: 4,
+          precisionKHz: 1,
+          trimTrailingZeros: true,
+        })
+      : "—";
+  const sourceRef =
+    sourceMode === "file" ? fileFrameRuntime.ref : activeLiveFrameRef;
 
   useEffect(() => {
     hasIqRef.current = false;
+    lastMetadataKeyRef.current = "";
+    sampleCountRef.current = null;
+    setSampleCount(null);
+    setFrameMetadata({ sampleRateHz: null, centerFrequencyHz: null });
     setHasIq(false);
     const canvas = canvasRef.current;
-    const context = canvas?.getContext("2d");
-    if (!canvas || !context) return;
+    if (!canvas) return;
+    const context = canvas.getContext("2d");
+    if (!context) return;
+    const drawCanvas: HTMLCanvasElement = canvas;
+    const drawContext: CanvasRenderingContext2D = context;
 
     let frameHandle = 0;
     let width = 0;
     let height = 0;
     let lastFrame: unknown = null;
     let lastIq: Uint8Array | null = null;
-    const resizeObserver = new ResizeObserver(() => {
-      const rect = canvas.getBoundingClientRect();
-      const dpr = Math.max(1, window.devicePixelRatio || 1);
-      const nextWidth = Math.max(1, Math.round(rect.width * dpr));
-      const nextHeight = Math.max(1, Math.round(rect.height * dpr));
+    const resizeObserver = new ResizeObserver((entries) => {
+      const rect = entries[0]?.contentRect;
+      if (!rect) return;
+      const nextWidth = Math.max(1, rect.width);
+      const nextHeight = Math.max(1, rect.height);
       if (nextWidth === width && nextHeight === height) return;
       width = nextWidth;
       height = nextHeight;
-      canvas.width = width;
-      canvas.height = height;
+      configureCanvasForDpr(
+        drawCanvas,
+        drawContext,
+        width,
+        height,
+        window.devicePixelRatio || 1,
+      );
       lastIq = null;
       frameHandle = window.requestAnimationFrame(draw);
     });
-    resizeObserver.observe(canvas);
+    resizeObserver.observe(drawCanvas);
+    const handleWindowResize = () => {
+      const cssWidth = drawCanvas.clientWidth;
+      const cssHeight = drawCanvas.clientHeight;
+      if (cssWidth <= 0 || cssHeight <= 0) return;
+      width = cssWidth;
+      height = cssHeight;
+      configureCanvasForDpr(
+        drawCanvas,
+        drawContext,
+        width,
+        height,
+        window.devicePixelRatio || 1,
+      );
+      lastIq = null;
+      frameHandle = window.requestAnimationFrame(draw);
+    };
+    window.addEventListener("resize", handleWindowResize);
 
     function draw() {
       const frame = latestFrame(sourceRef.current);
@@ -144,114 +236,66 @@ export const IQPlaneNode: React.FC<IQPlaneNodeProps> = ({ data }) => {
       if (
         frame &&
         iq &&
-        iq.length >= WINDOW_SAMPLES * 2 &&
+        iq.length >= 4 &&
         (frame !== lastFrame || iq !== lastIq)
       ) {
         lastFrame = frame;
         lastIq = iq;
+        const rawSampleCount = Math.floor(iq.length / 2);
+        if (rawSampleCount !== sampleCountRef.current) {
+          sampleCountRef.current = rawSampleCount;
+          setSampleCount(rawSampleCount);
+        }
+        const nextMetadata = resolveIqPlaneMetadata(frame, {
+          sampleRateHz: null,
+          centerFrequencyHz: null,
+        });
+        const metadataKey = `${nextMetadata.sampleRateHz ?? ""}:${nextMetadata.centerFrequencyHz ?? ""}`;
+        if (metadataKey !== lastMetadataKeyRef.current) {
+          lastMetadataKeyRef.current = metadataKey;
+          setFrameMetadata(nextMetadata);
+        }
         if (!hasIqRef.current) {
           hasIqRef.current = true;
           setHasIq(true);
         }
-        const dpr = Math.max(1, window.devicePixelRatio || 1);
         const centerX = width / 2;
         const centerY = height / 2;
-        const radius = Math.max(8, Math.min(width, height) * 0.4);
-        const sampleCount = Math.floor(iq.length / 2);
-        const blockCount = Math.floor(sampleCount / WINDOW_SAMPLES);
-        const blockStride = Math.max(1, Math.ceil(blockCount / MAX_TRACE_POINTS));
+        const radius = Math.max(8, Math.min(width, height) * 0.35);
+        const points = projectIqSamples(iq, MAX_PLOTTED_SAMPLES);
 
-        context.clearRect(0, 0, width, height);
-        context.fillStyle = getComputedStyle(canvas).backgroundColor || "#0a0a0a";
-        context.fillRect(0, 0, width, height);
-        context.lineWidth = dpr;
-        context.strokeStyle = "rgba(130, 145, 165, 0.25)";
+        drawContext.clearRect(0, 0, width, height);
+        drawContext.fillStyle =
+          getComputedStyle(drawCanvas).backgroundColor || "#0a0a0a";
+        drawContext.fillRect(0, 0, width, height);
+        drawContext.lineWidth = 1.25;
+        drawContext.strokeStyle = "rgba(110, 126, 148, 0.38)";
         for (const fraction of [0.25, 0.5, 0.75, 1]) {
-          context.beginPath();
-          context.arc(centerX, centerY, radius * fraction, 0, Math.PI * 2);
-          context.stroke();
+          drawContext.beginPath();
+          drawContext.arc(centerX, centerY, radius * fraction, 0, Math.PI * 2);
+          drawContext.stroke();
         }
-        context.strokeStyle = "rgba(160, 175, 195, 0.55)";
-        context.beginPath();
-        context.moveTo(centerX - radius, centerY);
-        context.lineTo(centerX + radius, centerY);
-        context.moveTo(centerX, centerY - radius);
-        context.lineTo(centerX, centerY + radius);
-        context.stroke();
+        drawContext.strokeStyle = "rgba(110, 126, 148, 0.72)";
+        drawContext.beginPath();
+        drawContext.moveTo(centerX - radius, centerY);
+        drawContext.lineTo(centerX + radius, centerY);
+        drawContext.moveTo(centerX, centerY - radius);
+        drawContext.lineTo(centerX, centerY + radius);
+        drawContext.stroke();
 
-        const toCanvas = (inPhase: number, quadrature: number) => ({
-          x: centerX + inPhase * radius,
-          y: centerY - quadrature * radius,
-        });
-        const frequencyStep =
-          typeof frame.sample_rate === "number" && frame.sample_rate > 0
-            ? frame.sample_rate / WINDOW_SAMPLES
-            : null;
+        drawContext.fillStyle = "rgba(25, 130, 235, 0.58)";
+        for (const point of points) {
+          const x = centerX + point.i * radius;
+          const y = centerY - point.q * radius;
+          drawContext.beginPath();
+          drawContext.arc(x, y, 1.5, 0, Math.PI * 2);
+          drawContext.fill();
+        }
 
-        FREQUENCY_BINS.forEach((bin, traceIndex) => {
-          const color = TRACE_COLORS[traceIndex] ?? "#50d7ff";
-          const angle = (-2 * Math.PI * bin) / WINDOW_SAMPLES;
-          const stepReal = Math.cos(angle);
-          const stepImaginary = Math.sin(angle);
-          const points: Array<{ x: number; y: number }> = [];
-
-          for (let blockIndex = 0; blockIndex < blockCount; blockIndex += blockStride) {
-            const blockStart = blockIndex * WINDOW_SAMPLES;
-            let oscillatorReal = 1;
-            let oscillatorImaginary = 0;
-            let sumReal = 0;
-            let sumImaginary = 0;
-
-            for (let sampleOffset = 0; sampleOffset < WINDOW_SAMPLES; sampleOffset += 1) {
-              const byteIndex = (blockStart + sampleOffset) * 2;
-              const sampleReal = ((iq[byteIndex] ?? 128) - 127.5) / 127.5;
-              const sampleImaginary = ((iq[byteIndex + 1] ?? 128) - 127.5) / 127.5;
-              sumReal += sampleReal * oscillatorReal - sampleImaginary * oscillatorImaginary;
-              sumImaginary += sampleReal * oscillatorImaginary + sampleImaginary * oscillatorReal;
-
-              const nextReal = oscillatorReal * stepReal - oscillatorImaginary * stepImaginary;
-              oscillatorImaginary = oscillatorReal * stepImaginary + oscillatorImaginary * stepReal;
-              oscillatorReal = nextReal;
-            }
-
-            points.push(toCanvas(sumReal / WINDOW_SAMPLES, sumImaginary / WINDOW_SAMPLES));
-          }
-
-          if (points.length === 0) return;
-          context.beginPath();
-          points.forEach(({ x, y }, index) => {
-            if (index === 0) context.moveTo(x, y);
-            else context.lineTo(x, y);
-          });
-          context.strokeStyle = color;
-          context.lineWidth = Math.max(1, dpr * 1.3);
-          context.stroke();
-
-          context.fillStyle = color;
-          for (const { x, y } of points) {
-            context.beginPath();
-            context.arc(x, y, Math.max(1.2, dpr * 1.5), 0, Math.PI * 2);
-            context.fill();
-          }
-
-          const offset = frequencyStep === null ? null : (bin * frequencyStep) / 1000;
-          const label = offset === null
-            ? `bin ${bin}`
-            : `${offset > 0 ? "+" : ""}${offset.toFixed(1)} kHz`;
-          context.fillStyle = color;
-          context.font = `${10 * dpr}px sans-serif`;
-          context.fillText(label, 10 * dpr, (18 + traceIndex * 13) * dpr);
-        });
-
-        context.fillStyle = "#aab6c7";
-        context.font = `${12 * dpr}px sans-serif`;
-        context.fillText("I", centerX + radius + 6 * dpr, centerY - 5 * dpr);
-        context.fillText("Q", centerX + 6 * dpr, centerY - radius - 6 * dpr);
-        context.fillText(
-          `${WINDOW_SAMPLES}-sample DFT · ${blockStride * WINDOW_SAMPLES} sample step`,
-          10 * dpr,
-          height - 10 * dpr,
-        );
+        drawContext.fillStyle = "#aab6c7";
+        drawContext.font = "600 11px sans-serif";
+        drawContext.fillText("I", centerX + radius + 6, centerY - 5);
+        drawContext.fillText("Q", centerX + 6, centerY - radius - 6);
       }
       frameHandle = window.requestAnimationFrame(draw);
     }
@@ -260,20 +304,39 @@ export const IQPlaneNode: React.FC<IQPlaneNodeProps> = ({ data }) => {
     return () => {
       window.cancelAnimationFrame(frameHandle);
       resizeObserver.disconnect();
+      window.removeEventListener("resize", handleWindowResize);
     };
   }, [sourceRef]);
 
   return (
     <OuterContainer data-testid="iq-plane-node">
       <Header>
-        <Title>{data?.label ?? "I/Q Plane"}</Title>
-        <SourceLabel>{deviceName} · 9 frequency traces</SourceLabel>
+        <HeaderTop>
+          <Title>{data?.label ?? "I/Q Plane"}</Title>
+          <SourceMetadata>
+            <SourceLabel>{deviceName}</SourceLabel>
+            <SourceLabel>
+              Sample rate {formatSampleRate(displayedMetadata.sampleRateHz)} ·{" "}
+              Center {centerFrequencyLabel} · Auto-scaled I/Q ·{" "}
+              {sampleCount?.toLocaleString("en-US") ?? "—"} samples
+            </SourceLabel>
+          </SourceMetadata>
+        </HeaderTop>
+        <RangeLegend aria-label="I/Q signed range from minus 128 to plus 127">
+          <span>I/Q signed range</span>
+          <span>−128</span>
+          <RangeLine aria-hidden="true" />
+          <span>0</span>
+          <RangeLine aria-hidden="true" />
+          <span>+127</span>
+        </RangeLegend>
       </Header>
       <Plot>
-        <PlaneCanvas ref={canvasRef} aria-label="I/Q frequency traces on complex plane" />
-        {!hasIq && (
-          <EmptyState>Waiting for I/Q samples</EmptyState>
-        )}
+        <PlaneCanvas
+          ref={canvasRef}
+          aria-label="Auto-scaled I/Q sample cloud on complex plane"
+        />
+        {!hasIq && <EmptyState>Waiting for I/Q samples</EmptyState>}
       </Plot>
     </OuterContainer>
   );
