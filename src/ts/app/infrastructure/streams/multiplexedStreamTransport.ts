@@ -27,6 +27,7 @@ type StreamConnection = {
   options: StreamOptions;
   paused: boolean;
   pendingFrameRequest: boolean;
+  subscriptionReady: boolean;
   deliveryPolicy: StreamDeliveryPolicy;
   inboundQueue: StreamInboundItem[];
   inboundItemInFlight: boolean;
@@ -361,6 +362,7 @@ export const createMultiplexedStreamTransport = ({
 
   const sendAllSubscriptions = (): void => {
     for (const connection of connections.values()) {
+      connection.subscriptionReady = false;
       send({
         type: "stream_subscribe",
         scope: "subscriber",
@@ -376,15 +378,6 @@ export const createMultiplexedStreamTransport = ({
           subscriptionId: connection.subscriptionId,
           stream: connection.key,
           paused: true,
-        });
-      }
-      if (connection.pendingFrameRequest) {
-        connection.pendingFrameRequest = false;
-        send({
-          type: "stream_request_frame",
-          scope: "subscriber",
-          subscriptionId: connection.subscriptionId,
-          stream: connection.key,
         });
       }
     }
@@ -444,6 +437,7 @@ export const createMultiplexedStreamTransport = ({
       const connection = connections.get(key);
       if (!connection) return;
       if (message.type === "stream_subscribed") {
+        connection.subscriptionReady = true;
         const effectiveOptions = isStreamOptionsForMode(
           message.effectiveOptions,
           connection.key.mode,
@@ -481,9 +475,25 @@ export const createMultiplexedStreamTransport = ({
             ? { streamUrl: message.streamUrl }
             : {}),
         }, aesKey);
+        if (connection.pendingFrameRequest) {
+          connection.pendingFrameRequest = false;
+          send({
+            type: "stream_request_frame",
+            scope: "subscriber",
+            subscriptionId: connection.subscriptionId,
+            stream: connection.key,
+          });
+        }
         return;
       }
-      if (message.type === "stream_unsubscribe") return;
+      if (message.type === "stream_state" && message.state === "opening") {
+        connection.subscriptionReady = false;
+      }
+      if (message.type === "stream_unsubscribe") {
+        connection.subscriptionReady = false;
+        connection.pendingFrameRequest = false;
+        return;
+      }
       if (message.type === "stream_frame") {
         enqueueFrame(connection, message, aesKey);
         return;
@@ -526,6 +536,7 @@ export const createMultiplexedStreamTransport = ({
       options: { mode: key.mode } as StreamOptions,
       paused: false,
       pendingFrameRequest: false,
+      subscriptionReady: false,
       deliveryPolicy: "lossless",
       inboundQueue: [],
       inboundItemInFlight: false,
@@ -539,6 +550,7 @@ export const createMultiplexedStreamTransport = ({
       send(message) {
         if (message.type === "stream_subscribe") {
           entry.subscriptionId = message.subscriptionId;
+          entry.subscriptionReady = false;
           entry.options = message.options;
           entry.deliveryPolicy = message.deliveryPolicy ?? "lossless";
         } else if (message.type === "stream_update_options") {
@@ -554,7 +566,7 @@ export const createMultiplexedStreamTransport = ({
         }
         if (
           message.type === "stream_request_frame" &&
-          socket?.readyState !== WebSocket.OPEN
+          (socket?.readyState !== WebSocket.OPEN || !entry.subscriptionReady)
         ) {
           entry.pendingFrameRequest = true;
           return;

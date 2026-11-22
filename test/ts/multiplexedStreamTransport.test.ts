@@ -20,6 +20,7 @@ describe("multiplexed stream transport", () => {
       send: jest.fn(),
       close: jest.fn(),
       onopen: null as (() => void) | null,
+      onmessage: null as ((event: MessageEvent) => void) | null,
     };
     const transport = createMultiplexedStreamTransport({
       url: "ws://localhost/ws",
@@ -50,6 +51,24 @@ describe("multiplexed stream transport", () => {
     expect(socket.send).not.toHaveBeenCalled();
     socket.readyState = WebSocket.OPEN;
     socket.onopen?.();
+    expect(socket.send.mock.calls.map(([message]) => JSON.parse(message).type))
+      .toEqual(["stream_subscribe"]);
+
+    socket.onmessage?.({
+      data: JSON.stringify({
+        type: "stream_subscribed",
+        sourceId: stream.sourceId,
+        mode: stream.mode,
+        streamEpoch: 1,
+        optionsRevision: 1,
+        state: "ready",
+        effectiveOptions: {
+          mode: "tx",
+          centerFrequencyHz: 137_100_000,
+          sampleRateHz: 3_200_000,
+        },
+      }),
+    } as MessageEvent);
     expect(socket.send.mock.calls.map(([message]) => JSON.parse(message).type))
       .toEqual(["stream_subscribe", "stream_request_frame"]);
     transport.dispose();
