@@ -12,8 +12,10 @@ import { QuestionnaireHeartOverlay } from './QuestionnaireHeartOverlay';
 import { applyAPose } from './ghostRig';
 
 const BODY_MAP_INITIAL_AREA = NEUTRAL_BODY_MAP_AREAS.find(({ name }) => name === 'Head')!;
-const HEART_OPTION = 'Heart';
-const HEART_AREA = NEUTRAL_BODY_MAP_AREAS.find(({ name }) => name === HEART_OPTION)!;
+const HEART_OPTIONS = new Set(['Heart', 'Heart Palpitations/Pains']);
+const HEART_AREA =
+  NEUTRAL_BODY_MAP_AREAS.find(({ name }) => name === 'Heart Palpitations/Pains') ??
+  NEUTRAL_BODY_MAP_AREAS.find(({ name }) => name === 'Heart')!;
 const CAMERA_VIEWS = [
   {
     label: 'Headshot',
@@ -112,7 +114,7 @@ function QuestionnaireBodyMapContent({ question, answer, onAnswerChange }: Quest
   const [nextCameraViewIndex, setNextCameraViewIndex] = useState(1);
   const orbitTweenTarget = useRef<object | null>(null);
   const selectedOptions = Array.isArray(answer) ? answer : [];
-  const hasHeartSelection = selectedOptions.includes(HEART_OPTION);
+  const hasHeartSelection = selectedOptions.some((option) => HEART_OPTIONS.has(option));
   const initialCameraArea = hasHeartSelection
     ? HEART_AREA
     : BODY_MAP_INITIAL_AREA;
@@ -226,7 +228,7 @@ function QuestionnaireBodyMapContent({ question, answer, onAnswerChange }: Quest
           modelOffset={[0, -0.95, 0]}
           areas={NEUTRAL_BODY_MAP_AREAS}
           visibleAreaNames={selectedOptions}
-          hiddenAreaMarkerNames={selectedOptions.includes(HEART_OPTION) ? [HEART_OPTION] : []}
+          hiddenAreaMarkerNames={hasHeartSelection ? [HEART_AREA.name] : []}
           activeAreaName={selectedArea?.name ?? BODY_MAP_INITIAL_AREA.name}
           showSelectionHalo={false}
           showTransformControls={false}
