@@ -292,6 +292,52 @@ fn build_tx_preview_frame_with_status(
   let tx_bandwidth_hz = *crate::safety::TX_BANDWIDTH_HZ.lock().unwrap();
   let tx_power_dbm = *crate::safety::TX_POWER_DBM.lock().unwrap();
   let tx_signal = crate::safety::TX_SIGNAL.lock().unwrap().clone();
+  synthesize_tx_monitor_frame(
+    shared, source_id, is_tx_preview, fft_size, view_center_hz, sample_rate,
+    tx_center_hz, tx_bandwidth_hz, &tx_signal, tx_ifft_size, tx_power_dbm,
+  )
+}
+
+pub(crate) fn build_managed_mock_tx_standby_preview(
+  shared: &SharedState,
+  options: &TxStreamOptions,
+) -> SpectrumData {
+  let default_fft_size = shared.sdr_settings.lock().unwrap().fft.default_size;
+  let fft_size = super::websocket_server::resolve_mock_tx_monitor_fft_size(
+    default_fft_size,
+    options.ifft_size,
+  );
+  synthesize_tx_monitor_frame(
+    shared,
+    MOCK_TX_SOURCE_ID,
+    true,
+    fft_size,
+    options.view_center_hz.unwrap_or(options.center_frequency_hz) as f64,
+    normalize_mock_tx_monitor_sample_rate(
+      options.view_sample_rate_hz.unwrap_or(options.sample_rate_hz).max(1),
+    ),
+    options.center_frequency_hz as f64,
+    options.bandwidth_hz as f64,
+    &normalize_tx_signal(Some(&options.signal)),
+    options.ifft_size,
+    options.power_dbm,
+  )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn synthesize_tx_monitor_frame(
+  shared: &SharedState,
+  source_id: &str,
+  is_tx_preview: bool,
+  fft_size: usize,
+  view_center_hz: f64,
+  sample_rate: u32,
+  tx_center_hz: f64,
+  tx_bandwidth_hz: f64,
+  tx_signal: &str,
+  tx_ifft_size: usize,
+  tx_power_dbm: f64,
+) -> SpectrumData {
   let power_model = complex_baseband::resolve_mock_tx_iq_power_model();
   let raw_iq = complex_baseband::synthesize_mock_tx_monitor_iq_shared_phase(
     fft_size,
@@ -303,7 +349,7 @@ fn build_tx_preview_frame_with_status(
       view_center_hz
     },
     tx_bandwidth_hz,
-    &tx_signal,
+    tx_signal,
     tx_ifft_size,
     tx_power_dbm,
     &power_model,

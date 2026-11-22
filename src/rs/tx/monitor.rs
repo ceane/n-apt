@@ -245,13 +245,20 @@ impl TxWorker {
     );
 
     // Managed subscribers own their preview demand across active-source changes.
-    if self.stream_manager.has_ready_mock_tx_preview(&tx_key)
-      || legacy_owner.as_deref() == Some(tx_key.source_id.as_str())
-    {
-      let frame =
-        crate::server::websocket_handlers::build_mock_tx_standby_preview_frame(
-          &self.shared_state,
-        );
+    let managed_preview = self.stream_manager.has_ready_mock_tx_preview(&tx_key);
+    if managed_preview || legacy_owner.as_deref() == Some(tx_key.source_id.as_str()) {
+      // Start/stop commands can change the shared monitor settings even when
+      // the managed options stay the same. Generate the requested geometry
+      // from the managed stream's options so the client accepts the preview.
+      use crate::server::websocket_handlers::{
+        build_managed_mock_tx_standby_preview, build_mock_tx_standby_preview_frame,
+      };
+      let frame = match self.stream_manager.options(&tx_key) {
+        Some(StreamOptions::Tx(options)) if managed_preview => {
+          build_managed_mock_tx_standby_preview(&self.shared_state, &options)
+        }
+        _ => build_mock_tx_standby_preview_frame(&self.shared_state),
+      };
       let publish_result = self.stream_manager.publish_monitor_iq_frame_with_metadata(
         &tx_key,
         frame.timestamp,
@@ -665,10 +672,9 @@ mod tests {
       power_dbm: -18.0,
       ifft_size: 1024,
     };
-    crate::server::websocket_handlers::apply_tx_stream_options(
-      &tx_options,
-      true,
-    );
+    // Simulate shared settings drifting away from the managed preview window.
+    *crate::safety::TX_MONITOR_VIEW_CENTER_HZ.lock().unwrap() = 100_000_000.0;
+    crate::safety::TX_MONITOR_SAMPLE_RATE_HZ.store(6_400_000, Ordering::Relaxed);
     let options = StreamOptions::Tx(tx_options);
     let mut subscription = stream_manager
       .subscribe(key.clone(), options.clone())
@@ -739,6 +745,8 @@ mod tests {
       if let StreamEvent::Frame(frame) = event {
         assert!(frame.is_tx_preview);
         assert_eq!(frame.key, key);
+        assert_eq!(frame.center_frequency_hz, Some(137_100_000));
+        assert_eq!(frame.sample_rate_hz, 3_200_000);
         break;
       }
     }
