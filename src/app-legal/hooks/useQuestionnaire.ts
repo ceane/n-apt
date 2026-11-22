@@ -29,6 +29,31 @@ function readStorage(key, fallback) {
 
 const questions = parseQuestionnaireMarkdown(questionnaireMarkdown);
 const pages = groupQuestionPages(questions).map((page) => page.map((question) => question.id));
+const HEART_OPTION = 'Heart';
+const HEART_SYMPTOM_OPTION = 'Heart Palpitations/Pains';
+
+function migrateHeartSymptomAnswer(savedAnswers) {
+  const bodyMapQuestion = questions.find((question) => question.canvas === 'BodyMap');
+  const headEffectsQuestion = questions.find((question) => question.canvas === 'HeadEffects');
+  if (!bodyMapQuestion || !headEffectsQuestion) return savedAnswers;
+
+  const bodyMapAnswer = Array.isArray(savedAnswers[bodyMapQuestion.id]) ? savedAnswers[bodyMapQuestion.id] : [];
+  const headEffectsAnswer = Array.isArray(savedAnswers[headEffectsQuestion.id]) ? savedAnswers[headEffectsQuestion.id] : [];
+  const moveToHeadEffects = bodyMapAnswer.includes(HEART_SYMPTOM_OPTION);
+  const moveToBodyMap = headEffectsAnswer.includes(HEART_OPTION);
+  if (!moveToHeadEffects && !moveToBodyMap) return savedAnswers;
+
+  const nextBodyMapAnswer = bodyMapAnswer.filter((option) => option !== HEART_SYMPTOM_OPTION);
+  if (moveToBodyMap && !nextBodyMapAnswer.includes(HEART_OPTION)) nextBodyMapAnswer.push(HEART_OPTION);
+  const nextHeadEffectsAnswer = headEffectsAnswer.filter((option) => option !== HEART_OPTION);
+  if (moveToHeadEffects && !nextHeadEffectsAnswer.includes(HEART_SYMPTOM_OPTION)) nextHeadEffectsAnswer.push(HEART_SYMPTOM_OPTION);
+
+  return {
+    ...savedAnswers,
+    [bodyMapQuestion.id]: nextBodyMapAnswer,
+    [headEffectsQuestion.id]: nextHeadEffectsAnswer,
+  };
+}
 
 function resolveQuestions(pageIndex, pages) {
   const chunk = pages[pageIndex] || [];
@@ -51,10 +76,8 @@ export function useQuestionnaire() {
   const workerRef = useRef(null);
   const location = useLocation();
   const navigate = useNavigate();
-  const [answers, setAnswers] = useState(() => migrateQuestionnaireAnswers(
-    readStorage(ANSWERS_KEY, {}),
-    questions,
-    legacyQuestions,
+  const [answers, setAnswers] = useState(() => migrateHeartSymptomAnswer(
+    migrateQuestionnaireAnswers(readStorage(ANSWERS_KEY, {}), questions, legacyQuestions),
   ));
   const [currentPage, setCurrentPage] = useState(() => (
     pageIndexFromQuestionnairePath(location.pathname, pages)

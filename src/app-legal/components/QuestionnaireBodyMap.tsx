@@ -8,8 +8,14 @@ import { Model3DInteractionProvider } from '@n-apt/three-d/hooks/useHotspotEdito
 import { Model3DProvider, useModel3D, type Area } from '@n-apt/three-d/hooks/useModel3D';
 import { findBodyMapArea, findBodyMapOptionForArea, addBodyMapSelection } from '../utils/questionnaireBodyMap';
 import { NEUTRAL_BODY_MAP_AREAS } from '../data/neutralBodyMapAreas';
+import { QuestionnaireHeartOverlay } from './QuestionnaireHeartOverlay';
+import { applyAPose } from './ghostRig';
 
 const BODY_MAP_INITIAL_AREA = NEUTRAL_BODY_MAP_AREAS.find(({ name }) => name === 'Head')!;
+const HEART_OPTIONS = new Set(['Heart', 'Heart Palpitations/Pains']);
+const HEART_AREA =
+  NEUTRAL_BODY_MAP_AREAS.find(({ name }) => name === 'Heart Palpitations/Pains') ??
+  NEUTRAL_BODY_MAP_AREAS.find(({ name }) => name === 'Heart')!;
 const CAMERA_VIEWS = [
   {
     label: 'Headshot',
@@ -108,6 +114,10 @@ function QuestionnaireBodyMapContent({ question, answer, onAnswerChange }: Quest
   const [nextCameraViewIndex, setNextCameraViewIndex] = useState(1);
   const orbitTweenTarget = useRef<object | null>(null);
   const selectedOptions = Array.isArray(answer) ? answer : [];
+  const hasHeartSelection = selectedOptions.some((option) => HEART_OPTIONS.has(option));
+  const initialCameraArea = hasHeartSelection
+    ? HEART_AREA
+    : BODY_MAP_INITIAL_AREA;
   const NextViewIcon = CAMERA_VIEWS[nextCameraViewIndex].icon;
 
   const stopCameraPan = useCallback(() => {
@@ -214,16 +224,20 @@ function QuestionnaireBodyMapContent({ question, answer, onAnswerChange }: Quest
         <Model3DPerson
           onAreaSelect={handleRegionClick}
           modelUrl={HUMAN_MODEL_NEUTRAL_GLB_URL}
+          poseModel={applyAPose}
           modelOffset={[0, -0.95, 0]}
           areas={NEUTRAL_BODY_MAP_AREAS}
           visibleAreaNames={selectedOptions}
+          hiddenAreaMarkerNames={hasHeartSelection ? [HEART_AREA.name] : []}
           activeAreaName={selectedArea?.name ?? BODY_MAP_INITIAL_AREA.name}
           showSelectionHalo={false}
           showTransformControls={false}
           scrollRotate
-          initialCameraPosition={BODY_MAP_INITIAL_AREA.position}
-          initialCameraTarget={BODY_MAP_INITIAL_AREA.target}
-        />
+          initialCameraPosition={initialCameraArea.position}
+          initialCameraTarget={initialCameraArea.target}
+        >
+          {hasHeartSelection && <QuestionnaireHeartOverlay />}
+        </Model3DPerson>
       </ModelFrame>
       <RegionOptions role="group" aria-label="Select affected body areas">
         {question.options.map((option) => (

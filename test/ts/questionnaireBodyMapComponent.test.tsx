@@ -17,11 +17,12 @@ jest.mock('@n-apt/three-d/hooks/useHotspotEditor', () => ({
   Model3DInteractionProvider: ({ children }: { children: React.ReactNode }) => children,
 }));
 jest.mock('@n-apt/three-d/modelAssetUrls', () => ({
+  HEART_GLB_URL: '/glb_models/heart.glb',
   HUMAN_MODEL_NEUTRAL_GLB_URL: '/glb_models/human_model_neutral.glb',
 }));
 jest.mock('@n-apt/three-d/Model3DPerson', () => ({
-  Model3DPerson: ({ onAreaSelect, modelUrl, modelOffset, initialCameraPosition, initialCameraTarget, areas, showTransformControls }: { onAreaSelect: (area: Area) => void; modelUrl?: string; modelOffset?: number[]; initialCameraPosition?: number[]; initialCameraTarget?: number[]; areas?: Area[]; showTransformControls?: boolean }) => (
-    <div data-testid="body-map-3d-model" data-model-url={modelUrl} data-model-offset={JSON.stringify(modelOffset)} data-camera-position={JSON.stringify(initialCameraPosition)} data-camera-target={JSON.stringify(initialCameraTarget)} data-body-map-areas={JSON.stringify(areas)} data-transform-controls={String(showTransformControls)}>
+  Model3DPerson: ({ onAreaSelect, modelUrl, modelOffset, initialCameraPosition, initialCameraTarget, areas, showTransformControls, children }: { onAreaSelect: (area: Area) => void; modelUrl?: string; modelOffset?: number[]; initialCameraPosition?: number[]; initialCameraTarget?: number[]; areas?: Area[]; showTransformControls?: boolean; children?: React.ReactNode }) => (
+    <div data-testid="body-map-3d-model" data-model-url={modelUrl} data-model-offset={JSON.stringify(modelOffset)} data-camera-position={JSON.stringify(initialCameraPosition)} data-camera-target={JSON.stringify(initialCameraTarget)} data-body-map-areas={JSON.stringify(areas)} data-transform-controls={String(showTransformControls)} data-heart-overlay={String(Boolean(children))}>
       {areas?.flatMap((area) => (area.markerPositions ?? [area.markerPosition ?? area.target]).map((_, index) => (
         <button key={`${area.name}-${index}`} type="button" onClick={() => onAreaSelect(area)}>
           Select {area.name} marker {index + 1}
@@ -157,6 +158,33 @@ describe('QuestionnaireBodyMap', () => {
     expect(mockControls.update).toHaveBeenCalled();
     expect(jest.requireMock('gsap').gsap.killTweensOf).toHaveBeenCalledTimes(2);
     expect(jest.requireMock('gsap').gsap.to).not.toHaveBeenCalled();
+  });
+
+  test('heart symptoms show the heart overlay and frame the chest and head', () => {
+    const onAnswerChange = jest.fn();
+    function StatefulBodyMap() {
+      const [answer, setAnswer] = React.useState<string[]>([]);
+      return <QuestionnaireBodyMap
+        question={{ id: 'body-areas', options: ['Head', 'Heart Palpitations/Pains'] }}
+        answer={answer}
+        onAnswerChange={(id, next) => { onAnswerChange(id, next); setAnswer(next); }}
+      />;
+    }
+
+    render(<StatefulBodyMap />);
+
+    const model = screen.getByTestId('body-map-3d-model');
+    const heart = NEUTRAL_BODY_MAP_AREAS.find((area) => area.name === 'Heart Palpitations/Pains')!;
+    expect(model).toHaveAttribute('data-heart-overlay', 'false');
+
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Heart Palpitations/Pains' }));
+
+    expect(onAnswerChange).toHaveBeenCalledWith('body-areas', ['Heart Palpitations/Pains']);
+    expect(model).toHaveAttribute('data-heart-overlay', 'true');
+    expect(model).toHaveAttribute('data-camera-position', JSON.stringify(heart.position));
+    expect(model).toHaveAttribute('data-camera-target', JSON.stringify(heart.target));
+    expect(mockControls.object.position.set).toHaveBeenCalledWith(...heart.position);
+    expect(mockControls.target.set).toHaveBeenCalledWith(...heart.target);
   });
 
   test('either eye marker selects the same Eyes answer without duplicating it', () => {

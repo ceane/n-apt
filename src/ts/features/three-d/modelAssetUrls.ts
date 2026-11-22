@@ -1,3 +1,7 @@
+export const HEART_GLB_URL = new URL(
+  "../../../../public/glb_models/heart.glb",
+  import.meta.url,
+).href;
 export const BRAIN_GLB_URL = new URL(
   "../../../../public/glb_models/brain.glb",
   import.meta.url,

@@ -163,8 +163,13 @@ describe('questionnaire Markdown source', () => {
     expect(questions.filter(({ canvas }) => canvas === 'HeadMap')).toHaveLength(1);
     expect(markdown).toContain('<!-- Canvas::BodyMap -->');
     expect(markdown).not.toMatch(/^\s+\*(?:date|radio|options|Canvas::)[^*]*\*\s*$/m);
-    expect(questions).toHaveLength(legacyQuestions.length + 3);
+    expect(questions).toHaveLength(legacyQuestions.length + 4);
+    const revisedQuestion =
+      'Do you believe that others were exposed to any effects originating from your experience?';
+    expect(questions.some(({ text }) => text === revisedQuestion)).toBe(true);
+    expect(questions.some(({ text }) => text === 'What kinds of features?')).toBe(true);
     for (const legacyQuestion of legacyQuestions) {
+      if (legacyQuestion.id === '12' || legacyQuestion.id === '33') continue;
       expect(questions.some(({ text }) => text === legacyQuestion.text)).toBe(true);
     }
     const bodyMapQuestion = questions.find(({ canvas }) => canvas === 'BodyMap');
@@ -192,13 +197,15 @@ describe('questionnaire Markdown source', () => {
         'Chemical',
         'Somatic (sensations, pressure, jolts)',
         'Autonomic (manipulating involuntary functions of your body)',
+        'Heart Palpitations/Pains',
       ],
     }));
-    expect(questions.filter(({ isSubQuestion }) => isSubQuestion)).toHaveLength(37);
+    expect(questions.filter(({ isSubQuestion }) => isSubQuestion)).toHaveLength(38);
     const pages = groupQuestionPages(questions);
     expect(pages.find((page) => page[0]?.id === '25')?.map(({ id }) => id)).toEqual(['25', '25a', '25b', '25c', '25d', '25e']);
     expect(pages.find((page) => page[0]?.id === '29')?.map(({ id }) => id)).toEqual(['29', '29a', '29b', '29c', '29d', '29e', '29f', '29g', '29h']);
     for (const legacyQuestion of legacyQuestions) {
+      if (legacyQuestion.id === '12' || legacyQuestion.id === '33') continue;
       expect(questions.find(({ text, options }) => text === legacyQuestion.text && JSON.stringify(options) === JSON.stringify(legacyQuestion.options.filter(Boolean)))).toBeDefined();
     }
   });
