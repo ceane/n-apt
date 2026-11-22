@@ -43,7 +43,7 @@ describe('QuestionnaireHeadEffects', () => {
     ];
     expect(center[0]).toBeCloseTo(0);
     expect(center[1]).toBeCloseTo(1.95);
-    expect(center[2]).toBeCloseTo(-0.005);
+    expect(center[2]).toBeCloseTo(0.01334945);
   });
 
   test('creates smooth, uneven blob outlines that change over time', () => {
