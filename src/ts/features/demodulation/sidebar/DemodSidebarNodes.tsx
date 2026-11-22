@@ -211,13 +211,13 @@ const availableNodes: DemodNodeLibraryItem[] = [
     type: "custom",
     label: "I/Q Plane",
     description:
-      "Plot several coarse frequency-bin I/Q traces on the complex plane.",
+      "View an auto-scaled cloud of raw I/Q samples on the complex plane; zoom with the wheel or controls.",
     icon: <Activity size={16} />,
     position: { x: 700, y: 850 },
     data: {
       label: "I/Q Plane",
       description:
-        "Plot several coarse frequency-bin I/Q traces on the complex plane.",
+        "View an auto-scaled cloud of raw I/Q samples on the complex plane; zoom with the wheel or controls.",
       iqPlaneOptions: true,
     },
   },

@@ -4,6 +4,23 @@ export type IqPlaneMetadata = {
   centerFrequencyHz: number | null;
 };
 
+export type IqPlaneZoomAction = "in" | "out" | "reset";
+
+const MIN_IQ_PLANE_ZOOM = 0.5;
+const MAX_IQ_PLANE_ZOOM = 8;
+const IQ_PLANE_ZOOM_FACTOR = 1.2;
+
+export const adjustIqPlaneZoom = (
+  currentZoom: number,
+  action: IqPlaneZoomAction,
+): number => {
+  if (action === "reset") return 1;
+  const nextZoom =
+    currentZoom *
+    (action === "in" ? IQ_PLANE_ZOOM_FACTOR : 1 / IQ_PLANE_ZOOM_FACTOR);
+  return Math.min(MAX_IQ_PLANE_ZOOM, Math.max(MIN_IQ_PLANE_ZOOM, nextZoom));
+};
+
 type IqFrameMetadata = {
   sample_rate?: number | null;
   center_frequency_hz?: number | null;

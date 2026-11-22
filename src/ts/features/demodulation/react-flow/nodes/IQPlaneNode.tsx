@@ -6,11 +6,13 @@ import { formatFrequency } from "@n-apt/math/frequency";
 import { fileFrameRuntime } from "@n-apt/app/infrastructure/visualization/frameRuntime";
 import { useActivePresentationFrameRef } from "@n-apt/app/infrastructure/visualization/useActivePresentationFrame";
 import {
+  adjustIqPlaneZoom,
   configureCanvasForDpr,
   formatSampleRate,
   projectIqSamples,
   resolveIqPlaneMetadata,
   type IqPlaneMetadata,
+  type IqPlaneZoomAction,
 } from "./iqPlanePlot";
 
 type IQFrame = {
@@ -108,6 +110,56 @@ const RangeLine = styled.span`
   }
 `;
 
+const HeaderBottom = styled.div`
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+`;
+
+const ZoomControls = styled.div`
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  color: ${({ theme }) => theme.colors.textSecondary};
+  font-size: 9px;
+`;
+
+const ZoomButton = styled.button`
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 18px;
+  padding: 0;
+  border: 1px solid ${({ theme }) => theme.colors.border};
+  border-radius: 3px;
+  background: ${({ theme }) => theme.colors.background};
+  color: ${({ theme }) => theme.colors.textPrimary};
+  font: inherit;
+  cursor: pointer;
+
+  &:disabled {
+    opacity: 0.45;
+    cursor: default;
+  }
+`;
+
+const ZoomResetButton = styled.button`
+  padding: 2px 5px;
+  border: 1px solid ${({ theme }) => theme.colors.border};
+  border-radius: 3px;
+  background: ${({ theme }) => theme.colors.background};
+  color: ${({ theme }) => theme.colors.textSecondary};
+  font: inherit;
+  cursor: pointer;
+`;
+
+const ZoomReadout = styled.span`
+  min-width: 28px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+`;
+
 const Plot = styled.div`
   position: relative;
   flex: 1;
@@ -141,7 +193,9 @@ export const IQPlaneNode: React.FC<IQPlaneNodeProps> = ({ data }) => {
   const hasIqRef = useRef(false);
   const lastMetadataKeyRef = useRef("");
   const sampleCountRef = useRef<number | null>(null);
+  const zoomRef = useRef(1);
   const [hasIq, setHasIq] = useState(false);
+  const [zoom, setZoom] = useState(1);
   const [sampleCount, setSampleCount] = useState<number | null>(null);
   const [frameMetadata, setFrameMetadata] = useState<IqPlaneMetadata>({
     sampleRateHz: null,
@@ -173,6 +227,17 @@ export const IQPlaneNode: React.FC<IQPlaneNodeProps> = ({ data }) => {
       : "—";
   const sourceRef =
     sourceMode === "file" ? fileFrameRuntime.ref : activeLiveFrameRef;
+  const updateZoom = (action: IqPlaneZoomAction) => {
+    const nextZoom = adjustIqPlaneZoom(zoomRef.current, action);
+    zoomRef.current = nextZoom;
+    setZoom(nextZoom);
+  };
+  const handleWheel = (event: React.WheelEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    event.stopPropagation();
+    if (event.deltaY === 0) return;
+    updateZoom(event.deltaY < 0 ? "in" : "out");
+  };
 
   useEffect(() => {
     hasIqRef.current = false;
@@ -284,9 +349,10 @@ export const IQPlaneNode: React.FC<IQPlaneNodeProps> = ({ data }) => {
         drawContext.stroke();
 
         drawContext.fillStyle = "rgba(25, 130, 235, 0.58)";
+        const zoomedRadius = radius * zoomRef.current;
         for (const point of points) {
-          const x = centerX + point.i * radius;
-          const y = centerY - point.q * radius;
+          const x = centerX + point.i * zoomedRadius;
+          const y = centerY - point.q * zoomedRadius;
           drawContext.beginPath();
           drawContext.arc(x, y, 1.5, 0, Math.PI * 2);
           drawContext.fill();
@@ -322,16 +388,55 @@ export const IQPlaneNode: React.FC<IQPlaneNodeProps> = ({ data }) => {
             </SourceLabel>
           </SourceMetadata>
         </HeaderTop>
-        <RangeLegend aria-label="I/Q signed range from minus 128 to plus 127">
-          <span>I/Q signed range</span>
-          <span>−128</span>
-          <RangeLine aria-hidden="true" />
-          <span>0</span>
-          <RangeLine aria-hidden="true" />
-          <span>+127</span>
-        </RangeLegend>
+        <HeaderBottom>
+          <RangeLegend aria-label="I/Q signed range from minus 128 to plus 127">
+            <span>I/Q signed range</span>
+            <span>−128</span>
+            <RangeLine aria-hidden="true" />
+            <span>0</span>
+            <RangeLine aria-hidden="true" />
+            <span>+127</span>
+          </RangeLegend>
+          <ZoomControls
+            className="nodrag nopan"
+            aria-label="I/Q plot zoom controls"
+            onMouseDown={(event) => event.stopPropagation()}
+            onPointerDown={(event) => event.stopPropagation()}
+          >
+            <ZoomButton
+              type="button"
+              aria-label="Zoom I/Q out"
+              disabled={zoom <= 0.5}
+              onClick={() => updateZoom("out")}
+            >
+              −
+            </ZoomButton>
+            <ZoomReadout data-testid="iq-plane-zoom-readout">
+              {zoom.toFixed(1)}×
+            </ZoomReadout>
+            <ZoomButton
+              type="button"
+              aria-label="Zoom I/Q in"
+              disabled={zoom >= 8}
+              onClick={() => updateZoom("in")}
+            >
+              +
+            </ZoomButton>
+            <ZoomResetButton
+              type="button"
+              aria-label="Reset I/Q zoom"
+              onClick={() => updateZoom("reset")}
+            >
+              Reset
+            </ZoomResetButton>
+          </ZoomControls>
+        </HeaderBottom>
       </Header>
-      <Plot>
+      <Plot
+        className="nodrag nopan nowheel"
+        onWheel={handleWheel}
+        aria-label="I/Q plot. Use the mouse wheel or header controls to zoom."
+      >
         <PlaneCanvas
           ref={canvasRef}
           aria-label="Auto-scaled I/Q sample cloud on complex plane"
