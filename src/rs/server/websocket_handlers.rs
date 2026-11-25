@@ -1311,6 +1311,7 @@ async fn handle_stream_connection(
             }
             let mut stream_state = stream_state;
             if !source_is_active && stream.mode == StreamMode::Rx {
+              source_runtime_manager.wait_if_stopping(&stream).await;
               let runtime_result = if source_runtime_manager.is_running(&stream) {
                 Ok(())
               } else {

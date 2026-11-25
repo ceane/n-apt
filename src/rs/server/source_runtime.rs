@@ -192,6 +192,7 @@ struct RuntimeOptionsUpdate {
 
 struct RuntimeHandle {
   stop: tokio::sync::watch::Sender<bool>,
+  finished: tokio::sync::watch::Receiver<bool>,
   options: tokio::sync::watch::Sender<RuntimeOptionsUpdate>,
 }
 
@@ -241,16 +242,7 @@ impl SourceRuntimeManager {
     // Opening a USB device is not idempotent on all backends. Serialize only
     // starts for the same physical source/mode; different sources continue
     // to initialize concurrently.
-    let startup_lock = {
-      let mut locks = self
-        .startup_locks
-        .lock()
-        .expect("source runtime startup lock poisoned");
-      locks
-        .entry(key.clone())
-        .or_insert_with(|| Arc::new(tokio::sync::Mutex::new(())))
-        .clone()
-    };
+    let startup_lock = self.startup_lock(&key);
     let _startup_guard = startup_lock.lock().await;
 
     {
@@ -296,6 +288,7 @@ impl SourceRuntimeManager {
     };
 
     let (stop, stop_rx) = tokio::sync::watch::channel(false);
+    let (finished_tx, finished_rx) = tokio::sync::watch::channel(false);
     let (options, options_rx) =
       tokio::sync::watch::channel(RuntimeOptionsUpdate {
         revision: 0,
@@ -313,7 +306,11 @@ impl SourceRuntimeManager {
       }
       inner
         .handles
-        .insert(key.clone(), RuntimeHandle { stop, options });
+        .insert(key.clone(), RuntimeHandle {
+          stop,
+          finished: finished_rx,
+          options,
+        });
     }
 
     // Register the runtime before confirming startup settings so concurrent
@@ -379,6 +376,7 @@ impl SourceRuntimeManager {
       processor,
       stream_manager,
       stop_rx,
+      finished_tx,
       options_rx,
       applied_options_for_runtime,
       inner,
@@ -433,6 +431,7 @@ impl SourceRuntimeManager {
     stream_manager: StreamingSourceModeManager,
   ) {
     for key in stream_manager.rx_stream_keys_with_subscribers() {
+      self.wait_if_stopping(&key).await;
       if key.source_id == active_source_id || self.is_running(&key) {
         continue;
       }
@@ -501,6 +500,66 @@ impl SourceRuntimeManager {
     if let Some(handle) = inner.handles.get(key) {
       let _ = handle.stop.send(true);
     }
+  }
+
+  /// Stop a source-owned reader and wait until its processor has been dropped.
+  /// The active-source processor must not take the same USB device while this
+  /// runtime is still inside a blocking read.
+  pub async fn stop_and_wait(&self, key: &StreamKey) {
+    let startup_lock = self.startup_lock(key);
+    let _startup_guard = startup_lock.lock().await;
+    let Some(mut finished) = ({
+      let inner = self
+        .inner
+        .lock()
+        .expect("source runtime registry lock poisoned");
+      inner.handles.get(key).map(|handle| {
+        let _ = handle.stop.send(true);
+        handle.finished.clone()
+      })
+    }) else {
+      return;
+    };
+    while !*finished.borrow() {
+      if finished.changed().await.is_err() {
+        break;
+      }
+    }
+  }
+
+  /// If another transition has already signaled a runtime to stop, wait before
+  /// opening a replacement processor for the same physical device.
+  pub async fn wait_if_stopping(&self, key: &StreamKey) {
+    let Some(mut finished) = ({
+      let inner = self
+        .inner
+        .lock()
+        .expect("source runtime registry lock poisoned");
+      inner.handles.get(key).and_then(|handle| {
+        (*handle.stop.subscribe().borrow()).then(|| handle.finished.clone())
+      })
+    }) else {
+      return;
+    };
+    while !*finished.borrow() {
+      if finished.changed().await.is_err() {
+        break;
+      }
+    }
+  }
+
+  fn startup_lock(
+    &self,
+    key: &StreamKey,
+  ) -> Arc<tokio::sync::Mutex<()>> {
+    let mut locks = self
+      .startup_locks
+      .lock()
+      .expect("source runtime startup lock poisoned");
+    locks
+      .entry(key.clone())
+      .or_insert_with(|| Arc::new(tokio::sync::Mutex::new(())))
+      .clone()
   }
 
   pub fn running_source_count(&self) -> usize {
@@ -738,6 +797,7 @@ async fn run_runtime(
   processor: Arc<Mutex<SdrProcessor>>,
   stream_manager: StreamingSourceModeManager,
   mut stop_rx: tokio::sync::watch::Receiver<bool>,
+  finished_tx: tokio::sync::watch::Sender<bool>,
   mut options_rx: tokio::sync::watch::Receiver<RuntimeOptionsUpdate>,
   mut applied_options: RxStreamOptions,
   inner: Arc<Mutex<RuntimeManagerInner>>,
@@ -869,9 +929,13 @@ async fn run_runtime(
     }
   }
 
-  let mut inner = inner.lock().expect("source runtime registry lock poisoned");
-  inner.handles.remove(&key);
-  inner.registry.release(&key.source_id, key.mode);
+  drop(processor);
+  {
+    let mut inner = inner.lock().expect("source runtime registry lock poisoned");
+    inner.handles.remove(&key);
+    inner.registry.release(&key.source_id, key.mode);
+  }
+  let _ = finished_tx.send(true);
 }
 
 #[cfg(test)]

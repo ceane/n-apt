@@ -2001,18 +2001,23 @@ export const isCurrentManagedRxTarget = (
 export const shouldRequestManagedRxStartupFrame = ({
   activeSourceId,
   rxSourceId,
+  isCurrentRxTarget = false,
   sourceStatus,
   hasFrame,
   alreadyRequested,
 }: {
   activeSourceId: string | null | undefined;
   rxSourceId: string | null | undefined;
+  /** Selected subscriber source can differ from the process-wide active device. */
+  isCurrentRxTarget?: boolean;
   sourceStatus: unknown;
   hasFrame: boolean;
   alreadyRequested: boolean;
 }): boolean =>
-  activeSourceId === rxSourceId &&
-  (sourceStatus === "receiving" || sourceStatus === "streaming") &&
+  (activeSourceId === rxSourceId || isCurrentRxTarget) &&
+  (sourceStatus === "connected" ||
+    sourceStatus === "receiving" ||
+    sourceStatus === "streaming") &&
   !hasFrame &&
   !alreadyRequested;
 
@@ -2430,6 +2435,10 @@ const syncManagedStreamSubscriptions = (
           shouldRequestManagedRxStartupFrame({
             activeSourceId: latestState.activeSourceId,
             rxSourceId,
+            isCurrentRxTarget: isCurrentManagedRxTarget(
+              getState(),
+              rxSourceId,
+            ),
             sourceStatus:
               latestState.sourceStatuses?.[rxSourceId] ??
               latestState.sources?.find(
@@ -2487,6 +2496,7 @@ const syncManagedStreamSubscriptions = (
       shouldRequestManagedRxStartupFrame({
         activeSourceId: latestState.activeSourceId,
         rxSourceId,
+        isCurrentRxTarget: isCurrentManagedRxTarget(getState(), rxSourceId),
         sourceStatus: rxStatus,
         hasFrame: latestReadiness?.sourceId === rxSourceId,
         alreadyRequested: managedRxStartupFrameRequestSourceId === rxSourceId,
@@ -4452,6 +4462,18 @@ const createWebSocketMiddleware =
           presentationController.setPaused(sourceId, mode, isPaused);
           if (managedRxSubscription?.stream.sourceId === sourceId) {
             managedRxSubscription.setPaused(isPaused);
+            if (!isPaused) {
+              const readiness =
+                getState().websocket.sourceFrameReadinessByMode?.rx ?? null;
+              if (readiness?.sourceId !== sourceId) {
+                // Resume can arrive after a source switch whose stream opened
+                // but never delivered its first frame. Explicitly wake the
+                // source-owned acquisition worker so the canvas does not stay
+                // in Loading while the control still says it is streaming.
+                managedRxStartupFrameRequestSourceId = sourceId;
+                managedRxSubscription.requestNextFrame();
+              }
+            }
           }
         }
 

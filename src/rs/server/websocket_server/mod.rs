@@ -1309,7 +1309,11 @@ impl WebSocketServer {
             // publishing into that same stream after the handoff.
             self
               .source_runtime_manager
-              .stop(&StreamKey::new(source_id.clone(), StreamMode::Rx));
+              .stop_and_wait(&StreamKey::new(
+                source_id.clone(),
+                StreamMode::Rx,
+              ))
+              .await;
             {
               let mut processor = sdr_processor.lock().await;
               source_lifecycle::activate_source(
