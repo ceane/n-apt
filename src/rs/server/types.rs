@@ -442,6 +442,9 @@ pub struct SpectrumData {
   /// Power scale mode (dB or dBm)
   #[serde(skip_serializing_if = "Option::is_none")]
   pub power_scale: Option<PowerScale>,
+  /// Set by the Tx frame producer before the frame enters the broadcast queue.
+  #[serde(skip)]
+  pub is_tx_monitor: bool,
   /// Flag indicating whether this frame is a Tx preview frame
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub is_tx_preview: Option<bool>,

@@ -44,7 +44,7 @@ describe("multiplexed stream ingress tagging contract", () => {
       const event = await makeFrame(frameMessage({ mode }), await aesKeyImport());
       expect(event.type).toBe("stream_frame");
       if (event.type !== "stream_frame") return;
-      expect(["receiving", "transmitting"]).toContain(event.frame.frame_status);
+      expect(event.frame.frame_status).toBe(mode === "rx" ? "receiving" : "transmitting");
       expect(event.frame.frame_status === "standby").toBe(false);
       expect((event.frame as Record<string, unknown>).is_tx_preview).toBeUndefined();
       expect(
@@ -52,6 +52,14 @@ describe("multiplexed stream ingress tagging contract", () => {
       ).toBeUndefined();
     },
   );
+
+  it("rejects contradictory or missing mode tags", async () => {
+    const key = await aesKeyImport();
+    await expect(makeFrame(frameMessage({ mode: "rx", isTxPreview: true }), key))
+      .rejects.toThrow("Tx preview received on an Rx stream");
+    await expect(makeFrame(frameMessage({ mode: undefined }), key))
+      .rejects.toThrow("Invalid live stream mode");
+  });
 
   it("preserves a Mock Tx one-shot as a standby preview", async () => {
     const event = await makeFrame(

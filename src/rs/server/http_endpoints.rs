@@ -3636,6 +3636,7 @@ mod snapshot_tests {
       sample_rate: Some(2_400_000),
       power_scale: None,
       iq_data: (0..iq_len).map(|i| (i % 251) as u8).collect(),
+      is_tx_monitor: false,
       is_tx_preview: None,
     }
   }

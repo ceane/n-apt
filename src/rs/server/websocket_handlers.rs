@@ -346,6 +346,7 @@ pub(crate) fn build_tx_monitor_frame_from_iq(
     sample_rate: Some(sample_rate),
     power_scale: Some(PowerScale::DBm),
     iq_data,
+    is_tx_monitor: true,
     is_tx_preview: is_tx_preview.then_some(true),
   }
 }
@@ -1803,11 +1804,10 @@ pub enum IqFrameStatus {
 fn resolve_iq_frame_status(
   spectrum_data: &SpectrumData,
   is_paused: bool,
-  is_tx_monitor: bool,
 ) -> IqFrameStatus {
   if spectrum_data.is_tx_preview == Some(true) {
     IqFrameStatus::Standby
-  } else if is_tx_monitor {
+  } else if spectrum_data.is_tx_monitor {
     IqFrameStatus::Transmitting
   } else if is_paused {
     IqFrameStatus::Paused
@@ -2157,9 +2157,8 @@ pub(crate) async fn handle_source_iq_connection(
               )
             };
             let allow_next_paused_frame = paused_request.is_some();
-            let is_tx_monitor =
-              is_tx_monitor_source_id(&source_id)
-                && crate::safety::TX_TRANSMITTING.load(Ordering::Relaxed);
+            let is_tx_monitor = spectrum_data.is_tx_monitor
+              && spectrum_data.is_tx_preview != Some(true);
             if !should_send_source_iq_frame(
               &source_id,
               is_paused,
@@ -2175,7 +2174,6 @@ pub(crate) async fn handle_source_iq_connection(
               resolve_iq_frame_status(
                 &spectrum_data,
                 is_paused,
-                is_tx_monitor,
               ),
             ).await.is_err() {
               break;
@@ -4592,6 +4590,7 @@ mod tests {
       sample_rate: Some(2_400_000),
       power_scale: None,
       iq_data: vec![128, 129, 127, 126],
+      is_tx_monitor: false,
       is_tx_preview: Some(true),
     };
 
@@ -4725,6 +4724,7 @@ mod tests {
         sample_rate: Some(3_200_000),
         power_scale: None,
         iq_data: vec![128, 128],
+        is_tx_monitor: false,
         is_tx_preview: None,
       })
     };

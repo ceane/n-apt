@@ -24,7 +24,7 @@ describe("managed Tx subscription pause state", () => {
     iq_data: new Uint8Array([128, 129]),
   });
 
-  it("preserves an explicit standby preview when source status is stale", () => {
+  it("preserves an explicit standby preview", () => {
     const previewFrame = {
       ...txFrame(137_100_000, 3_200_000),
       frame_status: "standby" as const,
@@ -35,13 +35,21 @@ describe("managed Tx subscription pause state", () => {
       normalizeManagedStreamFrame({
         frame: previewFrame,
         mode: "tx",
-        sourceStatus: "transmitting",
       }),
     ).toMatchObject({
       frame_status: "standby",
       is_tx_preview: true,
       is_mock_tx_preview: true,
     });
+  });
+
+  it("rejects receiving frames on Tx and preserves tagged live Tx", () => {
+    const receiving = { ...txFrame(13_875_000, 18_250_000), frame_status: "receiving" as const };
+    const transmitting = { ...receiving, frame_status: "transmitting" as const };
+
+    expect(normalizeManagedStreamFrame({ frame: receiving, mode: "tx" })).toBeNull();
+    expect(normalizeManagedStreamFrame({ frame: transmitting, mode: "rx" })).toBeNull();
+    expect(normalizeManagedStreamFrame({ frame: transmitting, mode: "tx" })).toBe(transmitting);
   });
 
   it("keeps the Tx carrier separate from the monitor viewport", () => {
@@ -273,14 +281,12 @@ describe("managed Tx subscription pause state", () => {
     expect(
       shouldRejectManagedTxFrameForPreview({
         frame: mismatchedPreviewFrame,
-        sourceStatus: "standby",
         previewOptions: options,
       }),
     ).toBe(true);
     expect(
       shouldRejectManagedTxFrameForPreview({
         frame: mismatchedLiveFrame,
-        sourceStatus: "standby",
         previewOptions: options,
       }),
     ).toBe(false);

@@ -1001,17 +1001,12 @@ const processBatchedData = (dispatch: Dispatch, getState: () => any) => {
         (managedTxSubscription?.effectiveOptions.mode === "tx"
           ? managedTxSubscription.effectiveOptions
           : null);
-      if (!managedTxOptions || frame?.source_id !== "mock-tx") {
+      if (!managedTxOptions || frame?.source_id !== "mock-tx" || frame.frame_status !== "standby") {
         return true;
       }
       if (
         !shouldRejectManagedTxFrameForPreview({
           frame,
-          sourceStatus:
-            state.websocket.sourceStatuses?.[frame.source_id] ??
-            (state.websocket.sources ?? []).find(
-              (source: SourceInfo) => source.id === frame.source_id,
-            )?.status,
           previewOptions: managedTxOptions,
         })
       ) {
@@ -1568,58 +1563,26 @@ export const resolveManagedTxOptionsAfterSubscribe = ({
   pendingOptions: ManagedTxStreamOptions | null;
 }): ManagedTxStreamOptions => pendingOptions ?? openingOptions;
 
-/**
- * The manager's tx stream carries the generated waveform in both standby and
- * transmitting states. Legacy frame gating uses the explicit preview marker
- * to admit a standby frame, so derive that presentation metadata from the
- * current source state without generating or copying a second IQ payload.
- */
+/** Trust the frame's producer tag across asynchronous source status changes. */
 export const normalizeManagedStreamFrame = ({
   frame,
   mode,
-  sourceStatus,
 }: {
   frame: IqRawFrameV2;
   mode: "rx" | "tx";
-  sourceStatus: SourceInfo["status"];
-}): IqRawFrameV2 => {
-  if (mode !== "tx") return frame;
-  // The managed frame channel and source-status channel are separate
-  // WebSockets. A request-driven preview can therefore arrive while Redux
-  // still says transmitting; preserve its explicit standby metadata instead
-  // of relabeling it as another live Tx frame.
-  if (
-    frame.frame_status === "standby" ||
-    frame.is_tx_preview === true ||
-    frame.is_mock_tx_preview === true
-  ) {
-    return {
-      ...frame,
-      frame_status: "standby",
-      is_tx_preview: true,
-      is_mock_tx_preview: true,
-    };
+}): IqRawFrameV2 | null => {
+  const preview = frame.is_tx_preview === true || frame.is_mock_tx_preview === true;
+  if (mode === "rx") {
+    return !preview && (frame.frame_status === "receiving" || frame.frame_status === "paused")
+      ? frame
+      : null;
   }
-  if (
-    sourceStatus === "transmitting" ||
-    (sourceStatus == null && frame.frame_status === "transmitting")
-  ) {
-    // StreamFrame deliberately keeps the transport metadata small and uses
-    // `is_tx_preview` only for request-driven standby frames. Add the
-    // presentation mode here so the per-source controller cannot classify a
-    // live TX frame as RX and leave the TX canvas on its frozen preview.
-    return {
-      ...frame,
-      frame_status: "transmitting",
-      is_tx_preview: false,
-      is_mock_tx_preview: false,
-    };
-  }
+  if (frame.frame_status === "transmitting") return preview ? null : frame;
+  if (frame.frame_status !== "standby") return null;
   return {
     ...frame,
-    frame_status: "standby",
     is_tx_preview: true,
-    is_mock_tx_preview: true,
+    is_mock_tx_preview: frame.source_id === "mock-tx",
   };
 };
 
@@ -1638,14 +1601,11 @@ export const managedTxFrameMatchesOptions = (
  */
 export const shouldRejectManagedTxFrameForPreview = ({
   frame,
-  sourceStatus,
   previewOptions,
 }: {
   frame: IqRawFrameV2;
-  sourceStatus: SourceInfo["status"] | null | undefined;
   previewOptions: ManagedTxStreamOptions | null | undefined;
 }): boolean =>
-  sourceStatus !== "transmitting" &&
   frame.frame_status !== "transmitting" &&
   previewOptions !== null &&
   previewOptions !== undefined &&
@@ -1928,12 +1888,9 @@ const handleManagedStreamEvent = (
       dispatch(setDeviceSdrSettingsBundle(updates.spectrum as any));
     }
   } else if (event.type === "stream_frame") {
-    const state = getState().websocket;
-    const source = (state.sources ?? []).find(
-      (candidate: SourceInfo) => candidate.id === sourceId,
-    );
-    const sourceStatus =
-      state.sourceStatuses?.[sourceId] ?? source?.status ?? null;
+    if (event.sourceId !== sourceId || event.frame.source_id !== sourceId || event.mode !== mode) return;
+    const frame = normalizeManagedStreamFrame({ frame: event.frame, mode });
+    if (!frame) return;
     const managedTxOptions =
       pendingManagedTxPreviewOptions ??
       (managedTxSubscription?.effectiveOptions.mode === "tx"
@@ -1942,8 +1899,7 @@ const handleManagedStreamEvent = (
     if (
       mode === "tx" &&
       shouldRejectManagedTxFrameForPreview({
-        frame: event.frame,
-        sourceStatus,
+        frame,
         previewOptions: managedTxOptions,
       })
     ) {
@@ -1955,17 +1911,14 @@ const handleManagedStreamEvent = (
     }
     if (
       mode === "tx" &&
+      frame.frame_status === "standby" &&
       pendingManagedTxPreviewOptions &&
-      managedTxFrameMatchesOptions(event.frame, pendingManagedTxPreviewOptions)
+      managedTxFrameMatchesOptions(frame, pendingManagedTxPreviewOptions)
     ) {
       pendingManagedTxPreviewOptions = null;
     }
     queueLiveData(
-      normalizeManagedStreamFrame({
-        frame: event.frame,
-        mode,
-        sourceStatus,
-      }),
+      frame,
       dispatch,
       getState,
       event.oneShot === true,

@@ -108,7 +108,11 @@ export const makeFrame = async (
   const sourceId =
     typeof message.sourceId === "string" ? message.sourceId.trim() : "";
   if (!sourceId) throw new Error("Invalid live stream source identity");
-  const mode = message.mode === "tx" ? "tx" : "rx";
+  const mode = message.mode;
+  if (mode !== "tx" && mode !== "rx") throw new Error("Invalid live stream mode");
+  if (mode === "rx" && message.isTxPreview === true) {
+    throw new Error("Tx preview received on an Rx stream");
+  }
   // Garbage numeric fields must never flow NaN/Infinity into the frame — the
   // stream manager's epoch/revision/sequence gating relies on finite numbers.
   const sequence = requiredNonnegativeSafeInteger(message.sequence, "sequence");

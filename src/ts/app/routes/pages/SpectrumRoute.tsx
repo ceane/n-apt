@@ -774,12 +774,13 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
     sourceTransport?.phase === "ready"
       ? null
       : (streamingSource?.stream_epoch ?? null);
-  const dataRef =
-    wsDataRef ??
-    getLiveFrameRefForSource(
-      selectedSourceId || activeSourceId,
-      isSelectedSourceTxMode ? "tx" : "rx",
-    );
+  const modeFrameRef = getLiveFrameRefForSource(
+    selectedSourceId || activeSourceId,
+    selectedStreamMode,
+  );
+  const dataRef = isSelectedSourceTxMode
+    ? modeFrameRef
+    : wsDataRef ?? modeFrameRef;
   // supports_tx_monitor is a capability, not the current mode. The Tx
   // monitor pipeline must only be active after an explicit Tx-mode switch.
   const isMockTxMonitorActive =
@@ -2149,16 +2150,41 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
       : null,
     fallbackRange: sharedFrequencyRange ?? state.frequencyRange,
   });
-  const fftFrequencyRange = mockTxMonitorFrequencyRange ??
+  // Hardware Tx frames describe the actual monitor viewport. The Rx range
+  // may still be centered on a different channel during a same-device handoff.
+  const hardwareTxFrame =
+    isSelectedSourceTxMode &&
+    !isMockTxMonitorActive &&
+    latestSelectedFrame &&
+    latestSelectedFrame.source_id === (selectedSourceId || activeSourceId) &&
+    (latestSelectedFrame.frame_status === "standby" ||
+      latestSelectedFrame.frame_status === "transmitting")
+      ? latestSelectedFrame
+      : null;
+  const hardwareTxSampleRate = hardwareTxFrame?.sample_rate;
+  const hardwareTxCenter = hardwareTxFrame?.center_frequency_hz;
+  const hardwareTxRange =
+    typeof hardwareTxSampleRate === "number" &&
+    Number.isFinite(hardwareTxSampleRate) &&
+    hardwareTxSampleRate > 0 &&
+    typeof hardwareTxCenter === "number" &&
+    Number.isFinite(hardwareTxCenter)
+      ? {
+          min: hardwareTxCenter - hardwareTxSampleRate / 2,
+          max: hardwareTxCenter + hardwareTxSampleRate / 2,
+        }
+      : null;
+  const fftFrequencyRange = mockTxMonitorFrequencyRange ?? hardwareTxRange ??
     pausedRxFrameFrequencyRange ??
     sharedFrequencyRange ??
     state.frequencyRange ?? { min: 0, max: 1 };
   const fftCenterFrequencyHz =
-    mockTxMonitorFrequencyRange || pausedRxFrameFrequencyRange
+    mockTxMonitorFrequencyRange || hardwareTxRange || pausedRxFrameFrequencyRange
       ? (fftFrequencyRange.min + fftFrequencyRange.max) / 2
       : centerFrequencyHz;
   const fftHardwareSampleRateHz =
     mockTxMonitorSampleRateHz ??
+    hardwareTxSampleRate ??
     resolveCanonicalDisplaySampleRateHz({
       activeSampleRateHz: state.sampleRateHz,
       frameSampleRateHz: acceptedFrameSampleRateHz,
@@ -3053,7 +3079,7 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
                 />
               ) : null}
               <FFTAndWaterfall
-                key={visualizerLifecycleKey}
+                key={`${visualizerLifecycleKey}:${selectedStreamMode}`}
                 ref={fftCanvasRef}
                 txSlider={
                   showTxSlider && canShowTxSlider
@@ -3200,7 +3226,7 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
                 isIqRecordingActive={captureStatus?.status === "started"}
                 limitMarkers={limitMarkers}
                 isPaused={
-                  isSelectedMockTxTransmitting ? false : manualVisualizerPaused
+                  isSelectedSourceTransmitting ? false : manualVisualizerPaused
                 }
                 fftSize={state.fftSize}
                 fftWindow={state.fftWindow}

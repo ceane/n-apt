@@ -287,54 +287,24 @@ impl TxWorker {
     // the same synthesis inputs from the source-owned stream options before
     // building the one-shot, otherwise HackRF standby can be generated with
     // an old global center/rate and the client correctly rejects it as stale.
-    let requested_tx_options = match self.stream_manager.options(&hardware_tx_key) {
-      Some(StreamOptions::Tx(options)) => {
-        crate::server::websocket_handlers::apply_tx_stream_options(
-          &options, false,
-        );
-        Some(options)
-      }
-      _ => None,
-    };
-    let (frame, published_iq) =
-      if let Some(payload) = self
-        .stream_manager
-        .tx_payload(&hardware_tx_key)
-        .filter(|payload| {
-          requested_tx_options.as_ref().map_or(true, |options| {
-            payload.center_frequency_hz == options.center_frequency_hz
-              && payload.sample_rate_hz == options.sample_rate_hz
-          })
-        })
-      {
-        let frame = crate::server::websocket_handlers::build_tx_monitor_frame_from_iq(
-          &self.shared_state,
-          &request_owner,
-          payload.center_frequency_hz as f64,
-          payload.sample_rate_hz,
-          (*payload.iq_data).clone(),
-          true,
-        );
-        // Publish the transmitter's exact bytes by sharing the payload's
-        // existing Arc instead of re-cloning the full IQ buffer.
-        (frame, Arc::clone(&payload.iq_data))
-      } else {
-        // A prior transmission can leave a payload cached for an older
-        // channel. Never attach the new stream geometry to those old samples.
-        self.stream_manager.clear_tx_payload(&hardware_tx_key);
-        let frame = crate::server::websocket_handlers::build_tx_preview_frame(
-          &self.shared_state,
-          &request_owner,
-        );
-        let published_iq = Arc::new(frame.iq_data.clone());
-        (frame, published_iq)
-      };
+    if let Some(StreamOptions::Tx(options)) =
+      self.stream_manager.options(&hardware_tx_key)
+    {
+      crate::server::websocket_handlers::apply_tx_stream_options(&options, false);
+    }
+    // Standby uses the requested monitor viewport and signal. A cached
+    // transmitter payload describes the carrier and can belong to a previous
+    // waveform even when the carrier center and sample rate still match.
+    let frame = crate::server::websocket_handlers::build_tx_preview_frame(
+      &self.shared_state,
+      &request_owner,
+    );
     let publish_result = self.stream_manager.publish_monitor_iq_frame_with_metadata(
       &hardware_tx_key,
       frame.timestamp,
       frame.center_frequency_hz.map(|frequency| frequency as u64),
       frame.sample_rate.unwrap_or(1),
-      published_iq,
+      Arc::new(frame.iq_data),
       true,
     );
     match publish_result {

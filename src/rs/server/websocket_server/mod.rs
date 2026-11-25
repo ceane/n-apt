@@ -1742,6 +1742,7 @@ impl WebSocketServer {
             iq_data: raw_iq,
             // Untagged Mock Tx standby frames land in the RX presentation slot
             // while the UI reads TX mode — leaving a black STANDBY canvas.
+            is_tx_monitor: false,
             is_tx_preview: is_mock_tx_standby_preview.then_some(true),
           };
 
