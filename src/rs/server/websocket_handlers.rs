@@ -1313,7 +1313,15 @@ async fn handle_stream_connection(
             if !source_is_active && stream.mode == StreamMode::Rx {
               source_runtime_manager.wait_if_stopping(&stream).await;
               let runtime_result = if source_runtime_manager.is_running(&stream) {
-                Ok(())
+                // The runtime can outlive the last subscriber. A newly
+                // created stream blocks frames until its options are confirmed,
+                // even if the processor already has those exact settings.
+                match manager.options(&stream) {
+                  Some(StreamOptions::Rx(options)) => source_runtime_manager
+                    .update_rx_options(&stream, options)
+                    .map_err(|error| error.to_string()),
+                  _ => Err("missing RX stream options".to_string()),
+                }
               } else {
                 let shared_for_open = shared.clone();
                 let source_id = stream.source_id.clone();

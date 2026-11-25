@@ -16,6 +16,40 @@ describe("multiplexed stream transport", () => {
     jest.clearAllMocks();
   });
 
+  it("sends a paused startup frame request after the socket opens", () => {
+    const socket = {
+      readyState: WebSocket.CONNECTING as number,
+      send: jest.fn(),
+      close: jest.fn(),
+      onopen: null as (() => void) | null,
+    };
+    const transport = createMultiplexedStreamTransport({
+      url: "ws://localhost/ws",
+      aesKey: {} as CryptoKey,
+      webSocketFactory: () => socket as unknown as WebSocket,
+    });
+    const stream = { sourceId: "rtl-sdr-v4", mode: "rx" } as const;
+    const connection = transport.transportFactory(stream, () => undefined);
+    const subscriber = { scope: "subscriber", subscriptionId: "rtl", stream } as const;
+    connection.send({
+      ...subscriber,
+      type: "stream_subscribe",
+      options: { mode: "rx", centerFrequencyHz: 27_235_000, sampleRateHz: 3_200_000, fftSize: 2048 },
+    });
+    connection.send({ ...subscriber, type: "stream_set_paused", paused: true });
+    connection.send({ ...subscriber, type: "stream_request_frame" });
+
+    expect(socket.send).not.toHaveBeenCalled();
+    socket.readyState = WebSocket.OPEN;
+    socket.onopen?.();
+    expect(socket.send.mock.calls.map(([value]) => JSON.parse(value).type)).toEqual([
+      "stream_subscribe",
+      "stream_set_paused",
+      "stream_request_frame",
+    ]);
+    transport.dispose();
+  });
+
   it("preserves the applied options revision on the raw frame", async () => {
     (decryptPayloadBytes as jest.Mock).mockResolvedValueOnce(Uint8Array.from([1, 2]));
     const options = { mode: "rx", centerFrequencyHz: 1_610_000, sampleRateHz: 3_200_000, fftSize: 4096, fftWindow: "hann", frameRate: 25 };

@@ -592,7 +592,14 @@ let managedTxSourceId: string | null = null;
 let managedRxSubscribePending = false;
 let managedRxSubscribePendingSourceId: string | null = null;
 let managedRxStartupFrameRequestSourceId: string | null = null;
-let managedRxAckRecoveryTimer: ReturnType<typeof setTimeout> | null = null;
+let managedRxWatchdog: {
+  sourceId: string;
+  timer: ReturnType<typeof setInterval>;
+  lastProgress: number;
+  attempts: number;
+} | null = null;
+const RX_STALL_TIMEOUT_MS = 5_000;
+const RX_STALL_MESSAGE = "No fresh I/Q frames from the selected source.";
 let managedTxSubscribePending = false;
 let managedTxSubscribePendingSourceId: string | null = null;
 let pendingManagedTxOptions: ManagedTxStreamOptions | null = null;
@@ -919,7 +926,7 @@ export const resetWebSocketMiddlewareState = (): void => {
   presentationController.reset();
   managedRxSubscription?.unsubscribe();
   managedTxSubscription?.unsubscribe();
-  clearManagedRxAckRecoveryTimer();
+  clearManagedRxWatchdog();
   managedRxSubscription = null;
   managedTxSubscription = null;
   managedRxSourceId = null;
@@ -1015,13 +1022,29 @@ const processBatchedData = (dispatch: Dispatch, getState: () => any) => {
       // replace an explicit preview with default geometry.
       return false;
     });
+    const frames: IqRawFrameV2[] = [];
     for (const { frame, oneShot } of acceptedDeliveries) {
       const sourceId = frame?.source_id;
-      if (typeof sourceId === "string" && sourceId.length > 0) {
-        presentationController.acceptFrame(frame, undefined, oneShot);
+      if (
+        !frame.iq_data?.length ||
+        !presentationController.acceptFrame(frame, undefined, oneShot)
+      ) continue;
+      frames.push(frame);
+      const watchdog = managedRxWatchdog;
+      if (
+        watchdog?.sourceId === sourceId &&
+        frame.frame_status === "receiving" &&
+        frame.is_fresh !== false
+      ) {
+        watchdog.lastProgress = performance.now();
+        const hadFailed = watchdog.attempts === 2;
+        watchdog.attempts = 0;
+        if (hadFailed) {
+          publishSourceTransport(dispatch, getState, sourceId, "rx", "ready");
+        }
       }
     }
-    const frames = acceptedDeliveries.map(({ frame }) => frame);
+
     const presentationFrames = filterMultiplexStreamPresentationFrames(
       frames,
       presentation.mode === "tx",
@@ -1988,7 +2011,7 @@ export const isCurrentManagedRxTarget = (
     !!source &&
     source.capabilities?.can_receive !== false &&
     !!source.iq_format &&
-    isSourceStreamAvailable(state.sourceStatuses?.[sourceId] ?? source.status)
+    shouldHoldSourceSubscription(state.sourceStatuses?.[sourceId] ?? source.status)
   );
 };
 
@@ -2066,32 +2089,6 @@ export const shouldImmediatelyResetManagedRxSubscription = ({
   currentSourceId: string | null;
   nextSourceId: string | null;
 }): boolean => currentSourceId !== null && currentSourceId !== nextSourceId;
-
-/**
- * A logical RX subscription can exist while its multiplexed transport never
- * receives the server's epoch acknowledgement. Do not leave that half-open
- * entry forever: a fresh subscribe lets the stream transport retry the
- * handshake after a hotplug/reconnect race.
- */
-export const shouldRecoverManagedRxSubscription = ({
-  expectedSourceId,
-  managedSourceId,
-  sourceStatus,
-  streamEpoch,
-  elapsedMs,
-  timeoutMs = 3_000,
-}: {
-  expectedSourceId: string | null | undefined;
-  managedSourceId: string | null | undefined;
-  sourceStatus: unknown;
-  streamEpoch: number;
-  elapsedMs: number;
-  timeoutMs?: number;
-}): boolean =>
-  expectedSourceId === managedSourceId &&
-  (sourceStatus === "receiving" || sourceStatus === "streaming") &&
-  streamEpoch <= 0 &&
-  elapsedMs >= timeoutMs;
 
 /**
  * Global source status broadcasts must not pause a subscriber-local RX view.
@@ -2189,20 +2186,16 @@ export const resolveManagedRxSourceId = ({
   );
 };
 
-const clearManagedRxAckRecoveryTimer = (): void => {
-  if (managedRxAckRecoveryTimer !== null) {
-    clearTimeout(managedRxAckRecoveryTimer);
-    managedRxAckRecoveryTimer = null;
-  }
+const clearManagedRxWatchdog = (): void => {
+  if (managedRxWatchdog) clearInterval(managedRxWatchdog.timer);
+  managedRxWatchdog = null;
 };
 
 /**
  * Drop the current managed Rx subscription so the next sync re-establishes it.
  *
- * `immediate` releases the transport instead of waiting for a graceful close.
- * `cancelPending` also drops the ack-recovery timer and any queued device-option
- * publish — required when the desired source changes, but pointless from the
- * ack-recovery timer itself, which is already firing.
+ * `cancelPending` also clears the watchdog and queued option writes when
+ * the desired source changes.
  */
 const dropManagedRxSubscription = ({
   immediate,
@@ -2212,7 +2205,7 @@ const dropManagedRxSubscription = ({
   cancelPending: boolean;
 }): void => {
   if (cancelPending) {
-    clearManagedRxAckRecoveryTimer();
+    clearManagedRxWatchdog();
     managedRxOptionsScheduler.cancel();
     pendingManagedRxSubscribeOverrides = null;
   }
@@ -2222,36 +2215,51 @@ const dropManagedRxSubscription = ({
   managedRxStartupFrameRequestSourceId = null;
 };
 
-const armManagedRxAckRecovery = (
+const armManagedRxWatchdog = (
   sourceId: string,
   dispatch: Dispatch,
   getState: () => any,
 ): void => {
-  clearManagedRxAckRecoveryTimer();
-  const startedAt = Date.now();
-  managedRxAckRecoveryTimer = setTimeout(() => {
-    managedRxAckRecoveryTimer = null;
-    const rootState = getState();
-    const websocket = rootState.websocket;
-    const sourceStatus =
-      websocket.sourceStatuses?.[sourceId] ??
-      websocket.sources?.find((source: SourceInfo) => source.id === sourceId)
-        ?.status;
+  if (managedRxWatchdog?.sourceId === sourceId) return;
+  clearManagedRxWatchdog();
+  const timer = setInterval(() => {
+    const watchdog = managedRxWatchdog;
+    const subscription = managedRxSubscription;
     if (
-      !shouldRecoverManagedRxSubscription({
-        expectedSourceId: websocket.activeSourceId,
-        managedSourceId: managedRxSourceId,
-        sourceStatus,
-        streamEpoch: managedRxSubscription?.streamEpoch ?? 0,
-        elapsedMs: Date.now() - startedAt,
-      })
+      watchdog?.sourceId !== sourceId ||
+      subscription?.stream.sourceId !== sourceId
+    ) return;
+
+    if (
+      document.hidden ||
+      subscriberPausedBySource.get(sourceId) === true ||
+      wsInstance.ws?.readyState !== WebSocket.OPEN
     ) {
+      watchdog.lastProgress = performance.now();
       return;
     }
 
-    dropManagedRxSubscription({ immediate: true, cancelPending: false });
-    syncManagedStreamSubscriptions(dispatch, getState);
-  }, 3_000);
+    const options = subscription.effectiveOptions;
+    const timeout = options.mode === "rx" && options.frameRate
+      ? Math.max(RX_STALL_TIMEOUT_MS, 3_000 / options.frameRate)
+      : RX_STALL_TIMEOUT_MS;
+    if (performance.now() - watchdog.lastProgress < timeout) return;
+
+    if (watchdog.attempts === 0) {
+      watchdog.attempts = 1;
+      watchdog.lastProgress = performance.now();
+      dropManagedRxSubscription({ immediate: true, cancelPending: false });
+      pendingManagedRxSubscribeOverrides =
+        options.mode === "rx" ? options : null;
+      syncManagedStreamSubscriptions(dispatch, getState);
+    } else if (watchdog.attempts === 1) {
+      watchdog.attempts = 2;
+      publishSourceTransport(
+        dispatch, getState, sourceId, "rx", "failed", RX_STALL_MESSAGE, true,
+      );
+    }
+  }, 1_000);
+  managedRxWatchdog = { sourceId, timer, lastProgress: performance.now(), attempts: 0 };
 };
 
 const syncManagedStreamSubscriptions = (
@@ -2354,7 +2362,7 @@ const syncManagedStreamSubscriptions = (
       rxOptionsOverride,
     );
   }
-  if (managedRxSourceId !== rxSourceId) {
+  if ((managedRxSourceId ?? managedRxWatchdog?.sourceId ?? null) !== rxSourceId) {
     dropManagedRxSubscription({
       immediate: shouldImmediatelyResetManagedRxSubscription({
         currentSourceId: managedRxSourceId,
@@ -2399,7 +2407,7 @@ const syncManagedStreamSubscriptions = (
         }
         managedRxSubscription = subscription;
         managedRxSourceId = rxSourceId;
-        armManagedRxAckRecovery(rxSourceId, dispatch, getState);
+        armManagedRxWatchdog(rxSourceId, dispatch, getState);
         subscription.setDeliveryPolicy(
           getStreamDeliveryDemandPolicy({ sourceId: rxSourceId, mode: "rx" }),
         );
@@ -2757,7 +2765,7 @@ const resetManagedStreamPipeline = (recreate: boolean): void => {
   unsubscribeDeliveryDemandListener = null;
   managedRxSubscription?.unsubscribe();
   managedTxSubscription?.unsubscribe();
-  clearManagedRxAckRecoveryTimer();
+  clearManagedRxWatchdog();
   managedRxSubscription = null;
   managedTxSubscription = null;
   managedRxSourceId = null;
@@ -2888,6 +2896,14 @@ const publishSourceTransport = (
     !replaceFailure &&
     current?.phase === "failed" &&
     current.sourceId !== sourceId
+  ) {
+    return;
+  }
+  if (
+    mode === "rx" &&
+    phase !== "failed" &&
+    managedRxWatchdog?.sourceId === sourceId &&
+    managedRxWatchdog.attempts === 2
   ) {
     return;
   }
@@ -4460,6 +4476,10 @@ const createWebSocketMiddleware =
           }
           persistSubscriberPauseIntent();
           presentationController.setPaused(sourceId, mode, isPaused);
+          if (managedRxWatchdog?.sourceId === sourceId) {
+            managedRxWatchdog.lastProgress = performance.now();
+            if (!isPaused) managedRxWatchdog.attempts = 0;
+          }
           if (managedRxSubscription?.stream.sourceId === sourceId) {
             managedRxSubscription.setPaused(isPaused);
             if (!isPaused) {
