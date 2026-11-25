@@ -1,4 +1,6 @@
 export type RebuildStatusResponse = {
+  backendState?: "starting" | "running" | "restarting" | "down";
+  backendMessage?: string;
   rebuilding?: boolean;
   pending?: boolean;
   success?: boolean;

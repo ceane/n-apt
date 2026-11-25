@@ -2069,6 +2069,55 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
     [dispatch, jumpMonitorToTypedTxGeometry, txSignalPresets],
   );
 
+  const handleChannelSampleRateChange = useCallback(
+    (
+      rate: number,
+      mode?: "whole" | "manual",
+      channelFocusRange?: { min: number; max: number },
+    ) => {
+      if (
+        isTxModeGlobal &&
+        mode === "whole" &&
+        channelFocusRange &&
+        Number.isFinite(channelFocusRange.min) &&
+        Number.isFinite(channelFocusRange.max) &&
+        channelFocusRange.max > channelFocusRange.min
+      ) {
+        const centerFrequencyHz = Math.round(
+          (channelFocusRange.min + channelFocusRange.max) / 2,
+        );
+        const bandwidthHz = Math.round(
+          channelFocusRange.max - channelFocusRange.min,
+        );
+        dispatch(setTxGeometry({ centerFrequencyHz, sampleRateHz: bandwidthHz }));
+        dispatch(setTxViewerSampleRateHz(bandwidthHz));
+        jumpMonitorToTypedTxGeometry(centerFrequencyHz);
+        return;
+      }
+
+      handleSignalDisplaySampleRateChange(rate, mode, channelFocusRange);
+    },
+    [
+      dispatch,
+      handleSignalDisplaySampleRateChange,
+      isTxModeGlobal,
+      jumpMonitorToTypedTxGeometry,
+    ],
+  );
+
+  const handleTxChannelSelect = useCallback(
+    (range: { min: number; max: number }) => {
+      if (!Number.isFinite(range.min) || !Number.isFinite(range.max)) return;
+      const centerFrequencyHz = Math.round((range.min + range.max) / 2);
+      const bandwidthHz = Math.round(range.max - range.min);
+      if (centerFrequencyHz <= 0 || bandwidthHz <= 0) return;
+      dispatch(setTxGeometry({ centerFrequencyHz, sampleRateHz: bandwidthHz }));
+      dispatch(setTxViewerSampleRateHz(bandwidthHz));
+      jumpMonitorToTypedTxGeometry(centerFrequencyHz);
+    },
+    [dispatch, jumpMonitorToTypedTxGeometry],
+  );
+
   useEffect(() => {
     if (!isTransmittingGlobal) {
       pendingTxStopSourceIdRef.current = null;
@@ -3314,7 +3363,12 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
               isTxModeGlobal && !isActiveTxAreaFocused
             }
             onFocusActiveTxArea={handleFocusActiveTxArea}
-            onSampleRateChange={handleSignalDisplaySampleRateChange}
+            onSampleRateChange={handleChannelSampleRateChange}
+            onTxChannelSelect={
+              isTxModeGlobal && !isMockTxLiveSource
+                ? handleTxChannelSelect
+                : undefined
+            }
             activeSampleRateHz={
               sampleRateHzEffective ??
               liveSdrSettingsToUse?.sample_rate ??

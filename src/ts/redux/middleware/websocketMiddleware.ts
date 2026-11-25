@@ -820,6 +820,16 @@ const DISCONNECT_GRACE_MS = 150;
 // 1. Screen widths are typically smaller than the FFT size (which is width-based).
 // 2. Performance: Smaller FFTs save resources; higher resolution (larger FFT) should be reserved for zoom states.
 
+/** A channels broadcast may describe another source than this tab is viewing. */
+export const shouldApplyIncomingChannelsToSelectedSource = ({
+  targetSourceId,
+  selectedSourceId,
+}: {
+  targetSourceId?: string | null;
+  selectedSourceId?: string | null;
+}): boolean =>
+  !targetSourceId || !selectedSourceId || targetSourceId === selectedSourceId;
+
 /**
  * Channel metadata describes the backend's default window, not the user's
  * current viewport. Keep an entered range while a source switch republishes
@@ -830,16 +840,6 @@ export const resolveIncomingChannelsFrequencyRange = (
   currentRange: { min: number; max: number } | null | undefined,
   incomingRange: { min: number; max: number },
 ): { min: number; max: number } => currentRange ?? incomingRange;
-
-/** A channels broadcast may describe another source than this tab is viewing. */
-export const shouldApplyIncomingChannelsToSelectedSource = ({
-  targetSourceId,
-  selectedSourceId,
-}: {
-  targetSourceId?: string | null;
-  selectedSourceId?: string | null;
-}): boolean =>
-  !targetSourceId || !selectedSourceId || targetSourceId === selectedSourceId;
 
 /**
  * A delayed channels message can carry an old active label while the range
@@ -3537,7 +3537,11 @@ export const processWebSocketMessage = (
           : currentSources;
       dispatch(
         updateDeviceState({
-          ...(isSelectedSource ? { channels } : {}),
+          // Channel definitions are the canonical signals.yaml catalog shared
+          // by every source. The source_id scopes the selected tuning state
+          // below, but must not hide A/B/C when a different connected device
+          // is selected in this browser.
+          channels,
           ...(!isLocalEcho && nextSources.length > 0
             ? { sources: nextSources }
             : {}),

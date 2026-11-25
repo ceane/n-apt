@@ -347,6 +347,8 @@ interface ChannelsProps {
     mode?: "whole" | "manual",
     channelFocusRange?: FrequencyRange,
   ) => void;
+  /** Update the TX geometry and monitor view when a range bar is selected in TX mode. */
+  onTxChannelSelect?: (range: FrequencyRange) => void;
   /** Current source acquisition rate; overrides stale Redux channel state. */
   activeSampleRateHz?: number | null;
   /** Explicit selector mode. Do not infer this globally from channel spans. */
@@ -383,6 +385,7 @@ export const Channels: React.FC<ChannelsProps> = ({
   rangeSlidersDisabled = false,
   hideTitle = false,
   onSampleRateChange,
+  onTxChannelSelect,
   activeSampleRateHz,
   wholeChannelMode,
   channelLabels,
@@ -778,6 +781,15 @@ export const Channels: React.FC<ChannelsProps> = ({
                 String(highlightedSignalArea).toLowerCase() ===
                   String(label).toLowerCase();
               const activateChannel = () => {
+                if (onTxChannelSelect) {
+                  const range = { min: minFreq, max: maxFreq };
+                  reduxDispatch(
+                    setSignalAreaAndRange({ area: label.toUpperCase(), range }),
+                  );
+                  reduxDispatch(setVizPan(0));
+                  onTxChannelSelect(range);
+                  return;
+                }
                 const isTargetWholeChannel =
                   resolveWholeChannelFrame({
                     supportsWholeChannel: supportsWholeChannelDisplay,

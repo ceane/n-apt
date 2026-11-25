@@ -686,6 +686,8 @@ export const resolveLiveSourceLifecycle = ({
   isConnected = true,
   connectionStatus = null,
   hasConnectedOnce = false,
+  backendRuntimePhase = "unknown",
+  backendRuntimeMessage = null,
   reconnectAttempts = 0,
   maxReconnectAttempts = 5,
   isDevelopment = false,
@@ -716,6 +718,8 @@ export const resolveLiveSourceLifecycle = ({
   isConnected?: boolean;
   connectionStatus?: string | null;
   hasConnectedOnce?: boolean;
+  backendRuntimePhase?: "unknown" | "starting" | "running" | "restarting" | "down";
+  backendRuntimeMessage?: string | null;
   reconnectAttempts?: number;
   maxReconnectAttempts?: number;
   isDevelopment?: boolean;
@@ -777,6 +781,29 @@ export const resolveLiveSourceLifecycle = ({
 
   if (!isLive) return result("idle", null);
   if (
+    isDevelopment &&
+    isConnected === false &&
+    hasConnectedOnce &&
+    connectionStatus !== "connected" &&
+    backendRuntimePhase !== "down" &&
+    selectedSourceId
+  ) {
+    const isHotReload =
+      backendRuntimePhase === "restarting" ||
+      backendRuntimePhase === "starting";
+    return result("recovering", {
+      kind: "loading",
+      paneLabel: "server",
+      title: isHotReload ? "Hot Reload" : "Reconnecting",
+      sourceLabel: resolvedSourceLabel,
+      message:
+        backendRuntimeMessage ??
+        (isHotReload
+          ? "The Rust backend is restarting and will reconnect shortly."
+          : "The server connection was lost. Reconnecting to the device stream."),
+    });
+  }
+  if (
     isConnected === false &&
     transportPhase !== "ready" &&
     hasConnectedOnce &&
@@ -786,15 +813,13 @@ export const resolveLiveSourceLifecycle = ({
   ) {
     const retryMessage =
       reconnectAttempts > 0
-        ? `${isDevelopment ? "Hot reload reconnecting" : "Server reconnecting"}… (attempt ${reconnectAttempts}/${maxReconnectAttempts}). Waiting for the device stream.`
-        : isDevelopment
-          ? "Hot reload in progress… reconnecting to the device stream."
-          : "Server reconnecting… restoring the device stream.";
+        ? `The server connection was lost. Reconnecting… (attempt ${reconnectAttempts}/${maxReconnectAttempts}). Waiting for the device stream.`
+        : "The server connection was lost. Reconnecting to the device stream.";
     return result("recovering", {
-      kind: "loading",
+      kind: "error",
       sourceLabel: resolvedSourceLabel,
-      paneLabel: "server",
-      title: isDevelopment ? "Hot Reload — Reconnecting" : "Server Reconnecting",
+      reason: "Server down",
+      title: "Server Down",
       message: retryMessage,
     });
   }
@@ -951,6 +976,8 @@ export const useLiveSourceLifecycle = (
       input.connectionStatus,
       input.deviceStatus,
       input.hasConnectedOnce,
+      input.backendRuntimePhase,
+      input.backendRuntimeMessage,
       input.reconnectAttempts,
       input.maxReconnectAttempts,
       input.isDevelopment,

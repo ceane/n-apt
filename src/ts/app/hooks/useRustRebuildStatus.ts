@@ -10,6 +10,7 @@ import {
   shouldShowRebuildNotification,
   type RebuildStatusResponse,
 } from "@n-apt/app/infrastructure/services/rebuildStatusMessage";
+import { setBackendRuntimeStatus } from "@n-apt/redux/slices/websocketSlice";
 
 const notificationId = "rust-rebuild-notification";
 
@@ -26,6 +27,15 @@ export const useRustRebuildStatus = () => {
         const res = await fetch("/rebuild-status");
         if (!res.ok) return;
         const data = (await res.json()) as RebuildStatusResponse;
+        if (data.backendState) {
+          const backendMessage = data.backendMessage?.trim() || null;
+          dispatch(
+            setBackendRuntimeStatus({
+              phase: data.backendState,
+              message: backendMessage,
+            }),
+          );
+        }
         const showToast = shouldShowRebuildNotification(data);
 
         if (showToast) {

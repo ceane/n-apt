@@ -927,6 +927,12 @@ const BuildOrchestrator = () => {
 
         child.on('error', (error: any) => {
           removeActiveChild(activeChildrenRef.current, child);
+          if (pidKey === 'rustPid' || pidKey === 'rustCandidatePid') {
+            writeRebuildStatus({
+              backendState: 'down',
+              backendMessage: `${description} failed to start: ${error.message}`,
+            });
+          }
           addLog(chalk.red(`Failed to start ${description}: ${error.message}`));
           appendErrorDetail(`${description}: ${error.message}`);
           resolved = true;
@@ -938,6 +944,12 @@ const BuildOrchestrator = () => {
           const statusText =
             signal ? `signal ${signal}` : code !== null ? `exit code ${code}` : 'unknown exit';
           if (!resolved) {
+            if (pidKey === 'rustPid' || pidKey === 'rustCandidatePid') {
+              writeRebuildStatus({
+                backendState: 'down',
+                backendMessage: `${description} exited before becoming ready (${statusText}).`,
+              });
+            }
             addLog(chalk.red(`${description} failed to start or died immediately (${statusText})`));
             appendErrorDetail(`${description} failed to start or died immediately (${statusText})`);
             resolved = true;
@@ -953,11 +965,29 @@ const BuildOrchestrator = () => {
             // Once promoted, the candidate's exit listener is still attached
             // to the same child. Treat its later lifecycle events as the
             // active backend, not as a failed replacement.
-            if (rustPidRef.current === child.pid) return;
+            if (rustPidRef.current === child.pid) {
+              if (intentionalRustKillRef.current) {
+                intentionalRustKillRef.current = false;
+                return;
+              }
+              writeRebuildStatus({
+                backendState: 'down',
+                backendMessage: `Rust backend exited (${statusText}).`,
+              });
+              addLog(chalk.red(`[Watcher] Rust backend exited unexpectedly (${statusText}). Leaving it stopped.`));
+              appendErrorDetail(`Rust backend exited unexpectedly (${statusText})`);
+              rustPidRef.current = undefined;
+              setBuildState(prev => ({ ...prev, rustPid: undefined }));
+              return;
+            }
             if (intentionalRustCandidateKillRef.current) {
               intentionalRustCandidateKillRef.current = false;
               return;
             }
+            writeRebuildStatus({
+              backendState: 'down',
+              backendMessage: `Replacement Rust backend exited (${statusText}).`,
+            });
             addLog(chalk.red(`${description} exited unexpectedly (${statusText}).`));
             appendErrorDetail(`${description} exited unexpectedly (${statusText})`);
             setBuildState(prev => ({ ...prev, rustCandidatePid: undefined }));
@@ -969,6 +999,10 @@ const BuildOrchestrator = () => {
               intentionalRustKillRef.current = false;
               return;
             }
+            writeRebuildStatus({
+              backendState: 'down',
+              backendMessage: `Rust backend exited (${statusText}).`,
+            });
             addLog(chalk.red(`[Watcher] Rust backend exited unexpectedly (${statusText}). Leaving it stopped.`));
             appendErrorDetail(`Rust backend exited unexpectedly (${statusText})`);
             setBuildState(prev => ({ ...prev, rustPid: undefined }));
@@ -1210,6 +1244,10 @@ exit 1
         await logMetalBackendAvailability();
 
         addLog(chalk.green('Rust backend fully initialized and ready'));
+        writeRebuildStatus({
+          backendState: 'running',
+          backendMessage: 'Rust backend is ready.',
+        });
         return true;
   
       } catch (error: any) {
@@ -1219,11 +1257,18 @@ exit 1
       } finally {
         setBuildState(prev => ({ ...prev, activeBuildOutputStep: undefined }));
       }
-    }, [executeForegroundCommand, executeCommand, startBackgroundProcess, appendErrorDetail, logMetalBackendAvailability]);
+    }, [executeForegroundCommand, executeCommand, startBackgroundProcess, appendErrorDetail, logMetalBackendAvailability, writeRebuildStatus]);
 
   const runBuild = useCallback(async () => {
     try {
-      writeRebuildStatus({ rebuilding: false, progress: undefined, recentLines: [], phase: undefined });
+      writeRebuildStatus({
+        rebuilding: false,
+        progress: undefined,
+        recentLines: [],
+        phase: undefined,
+        backendState: 'starting',
+        backendMessage: 'Starting the Rust backend.',
+      });
     } catch {}
     const buildStartTime = Date.now();
     setCompletedRuntimeSeconds(null);
@@ -1873,6 +1918,10 @@ echo "${encryptedModulesStatus.success}"
       // falls back to Mock APT while still answering HTTP. Stop the old owner
       // first and wait for it to actually exit.
       if (oldPid) {
+        writeRebuildStatusRef.current({
+          backendState: 'restarting',
+          backendMessage: 'The Rust backend is restarting for hot reload.',
+        });
         intentionalRustKillRef.current = true;
         addLogRef.current(chalk.green('[Watcher] Stopping current Rust backend to release the SDR...'));
         signalProcessTree(oldPid, 'SIGTERM');
@@ -1899,7 +1948,13 @@ echo "${encryptedModulesStatus.success}"
         'rustCandidatePid',
       );
       const candidatePid = rustCandidatePidRef.current;
-      if (!candidateStarted || !candidatePid) return false;
+      if (!candidateStarted || !candidatePid) {
+        writeRebuildStatusRef.current({
+          backendState: 'down',
+          backendMessage: 'The replacement Rust backend failed to start.',
+        });
+        return false;
+      }
 
       const abortCandidate = () => {
         intentionalRustCandidateKillRef.current = true;
@@ -1925,6 +1980,10 @@ echo "${encryptedModulesStatus.success}"
       if (!(await waitForBackendReady())) {
         addLogRef.current(chalk.yellow('[Watcher] Replacement Rust backend did not become ready.'));
         abortCandidate();
+        writeRebuildStatusRef.current({
+          backendState: 'down',
+          backendMessage: 'The replacement Rust backend did not become ready.',
+        });
         return false;
       }
 
@@ -1946,6 +2005,10 @@ echo "${encryptedModulesStatus.success}"
           `[Watcher] Replacement Rust backend did not acquire the SDR: ${formatSdrReadyFailure(sdrReady)}.`,
         ));
         abortCandidate();
+        writeRebuildStatusRef.current({
+          backendState: 'down',
+          backendMessage: 'The replacement backend failed during device handoff.',
+        });
         return false;
       }
       if (sdrReady.outcome === 'connected') {
@@ -1972,6 +2035,10 @@ echo "${encryptedModulesStatus.success}"
       // Proxy closes existing websockets on target change; give clients a beat
       // to land on the replacement backend.
       await new Promise((resolve) => setTimeout(resolve, 250));
+      writeRebuildStatusRef.current({
+        backendState: 'running',
+        backendMessage: 'Rust backend reloaded and ready.',
+      });
 
       return true;
     };
@@ -2665,8 +2732,24 @@ node scripts/redis/promote_tower_staging.cjs`,
   let nonTtyStartedAt = 0;
   const writeNonTtyStatus = (patch: Partial<RebuildStatusPayload>) => {
     try {
+      const backendStep = patch.steps?.find(
+        (step) => step.name === 'Building and starting Rust backend',
+      );
+      const backendState =
+        backendStep?.status === 'success'
+          ? 'running'
+          : backendStep?.status === 'error'
+            ? 'down'
+            : 'starting';
       fs.writeFileSync(rebuildStatusPath, `${JSON.stringify({
         rebuilding: true,
+        backendState,
+        backendMessage:
+          backendState === 'running'
+            ? 'Rust backend is ready.'
+            : backendState === 'down'
+              ? 'Rust backend failed during startup.'
+              : 'Starting the Rust backend.',
         buildStartedAt: nonTtyStartedAt || Date.now(),
         errorCount: errorDetails.length,
         warningCount: 0,

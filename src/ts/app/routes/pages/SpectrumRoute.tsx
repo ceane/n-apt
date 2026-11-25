@@ -566,6 +566,12 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
   const connectionStatus = useAppSelector(
     (state) => state.websocket.connectionStatus,
   );
+  const backendRuntimePhase = useAppSelector(
+    (state) => state.websocket.backendRuntimePhase,
+  );
+  const backendRuntimeMessage = useAppSelector(
+    (state) => state.websocket.backendRuntimeMessage,
+  );
   const hasConnectedOnce = useAppSelector(
     (state) => state.websocket.hasConnectedOnce,
   );
@@ -914,6 +920,8 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
     isConnected,
     connectionStatus,
     hasConnectedOnce,
+    backendRuntimePhase,
+    backendRuntimeMessage,
     reconnectAttempts,
     maxReconnectAttempts,
     isDevelopment: import.meta.env.DEV,
@@ -3010,6 +3018,8 @@ export const SpectrumRoute: React.FC<SpectrumRouteProps> = ({
       sources,
       sourceStatuses,
       connectionStatus,
+      backendRuntimePhase,
+      backendRuntimeMessage,
       expectedStreamEpoch,
       expectedVisualizerSourceId,
       hasPlayedAtLeastOnce,

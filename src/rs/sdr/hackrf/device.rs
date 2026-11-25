@@ -33,11 +33,18 @@ impl TxContext {
   }
 
   fn replace_iq(&self, iq: Vec<u8>) {
-    *self.iq.lock().unwrap() = iq;
+    *self
+      .iq
+      .lock()
+      .unwrap_or_else(|poisoned| poisoned.into_inner()) = iq;
   }
 
   fn snapshot_iq(&self) -> Vec<u8> {
-    self.iq.lock().unwrap().clone()
+    self
+      .iq
+      .lock()
+      .unwrap_or_else(|poisoned| poisoned.into_inner())
+      .clone()
   }
 }
 
@@ -155,11 +162,11 @@ extern "C" fn hackrf_tx_callback(transfer: *mut ffi::HackRfTransfer) -> c_int {
     let transfer = unsafe { &mut *transfer };
     if transfer.buffer.is_null()
       || transfer.buffer_length <= 0
-      || transfer.rx_ctx.is_null()
+      || transfer.tx_ctx.is_null()
     {
       return -1;
     }
-    let ctx = unsafe { &*(transfer.rx_ctx as *const TxContext) };
+    let ctx = unsafe { &*(transfer.tx_ctx as *const TxContext) };
     let iq = ctx.snapshot_iq();
     if iq.is_empty() {
       return -1;

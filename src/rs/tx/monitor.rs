@@ -279,24 +279,34 @@ impl TxWorker {
 
     // Half-duplex hardware path — publish a standby preview so the requested
     // source gets its frame even though the general SDR loop is reading a
-    // different (Rx) source. Prefer the stored transmit payload (the exact
-    // bytes handed to the transmitter) when one exists; otherwise synthesize
-    // from the TX globals set by the preview request, mirroring the source-I/Q
-    // socket behavior for an inactive tx-capable device.
+    // different (Rx) source. Reuse the stored transmit payload only when its
+    // center and sample rate still match the selected TX geometry; otherwise
+    // synthesize a fresh preview from the source-owned options.
     let hardware_tx_key = StreamKey::new(request_owner.clone(), StreamMode::Tx);
     // Managed Tx requests do not traverse the legacy status handler. Hydrate
     // the same synthesis inputs from the source-owned stream options before
     // building the one-shot, otherwise HackRF standby can be generated with
     // an old global center/rate and the client correctly rejects it as stale.
-    if let Some(StreamOptions::Tx(options)) =
-      self.stream_manager.options(&hardware_tx_key)
-    {
-      crate::server::websocket_handlers::apply_tx_stream_options(
-        &options, false,
-      );
-    }
+    let requested_tx_options = match self.stream_manager.options(&hardware_tx_key) {
+      Some(StreamOptions::Tx(options)) => {
+        crate::server::websocket_handlers::apply_tx_stream_options(
+          &options, false,
+        );
+        Some(options)
+      }
+      _ => None,
+    };
     let (frame, published_iq) =
-      if let Some(payload) = self.stream_manager.tx_payload(&hardware_tx_key) {
+      if let Some(payload) = self
+        .stream_manager
+        .tx_payload(&hardware_tx_key)
+        .filter(|payload| {
+          requested_tx_options.as_ref().map_or(true, |options| {
+            payload.center_frequency_hz == options.center_frequency_hz
+              && payload.sample_rate_hz == options.sample_rate_hz
+          })
+        })
+      {
         let frame = crate::server::websocket_handlers::build_tx_monitor_frame_from_iq(
           &self.shared_state,
           &request_owner,
@@ -309,6 +319,9 @@ impl TxWorker {
         // existing Arc instead of re-cloning the full IQ buffer.
         (frame, Arc::clone(&payload.iq_data))
       } else {
+        // A prior transmission can leave a payload cached for an older
+        // channel. Never attach the new stream geometry to those old samples.
+        self.stream_manager.clear_tx_payload(&hardware_tx_key);
         let frame = crate::server::websocket_handlers::build_tx_preview_frame(
           &self.shared_state,
           &request_owner,

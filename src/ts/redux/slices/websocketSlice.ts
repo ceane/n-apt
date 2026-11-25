@@ -45,6 +45,13 @@ export type AppliedStreamOptionsState = {
   options: IqAppliedStreamOptions;
 };
 
+export type BackendRuntimePhase =
+  | "unknown"
+  | "starting"
+  | "running"
+  | "restarting"
+  | "down";
+
 const createSourceTransportByMode = (): Record<
   StreamControlMode,
   SourceTransportState
@@ -71,6 +78,9 @@ export interface WebSocketState {
   hasConnectedOnce: boolean;
   reconnectAttempts: number;
   maxReconnectAttempts: number;
+  /** Explicit backend process state reported by the local dev orchestrator. */
+  backendRuntimePhase: BackendRuntimePhase;
+  backendRuntimeMessage: string | null;
 
   // Device state
   deviceState: DeviceState;
@@ -138,6 +148,8 @@ const initialState: WebSocketState = {
   hasConnectedOnce: false,
   reconnectAttempts: 0,
   maxReconnectAttempts: 5,
+  backendRuntimePhase: "unknown",
+  backendRuntimeMessage: null,
 
   deviceState: null,
   deviceLoadingReason: null,
@@ -261,6 +273,17 @@ const websocketSlice = createSlice({
     setError: (state, action: PayloadAction<string>) => {
       state.error = action.payload;
       state.connectionStatus = "error";
+    },
+
+    setBackendRuntimeStatus: (
+      state,
+      action: PayloadAction<{
+        phase: BackendRuntimePhase;
+        message?: string | null;
+      }>,
+    ) => {
+      state.backendRuntimePhase = action.payload.phase;
+      state.backendRuntimeMessage = action.payload.message?.trim() || null;
     },
 
     /** Stream/source operational failure — keep the control plane connected. */
@@ -398,6 +421,7 @@ export const {
   setDisconnected,
   setReconnecting,
   setError,
+  setBackendRuntimeStatus,
   setOperationalError,
   reset,
   updateDeviceState,

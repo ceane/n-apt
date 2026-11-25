@@ -15,6 +15,8 @@ const CARGO_BUILD_PROGRESS = /\bBuilding\s+\[[^\]]*\]\s+(\d+)\/(\d+)\s*:\s*(.+)$
 const N_APT_BACKEND_CRATE = /^Compiling\s+n-apt-backend\b/i;
 
 export type RebuildStatusPayload = {
+  backendState?: "starting" | "running" | "restarting" | "down";
+  backendMessage?: string;
   rebuilding: boolean;
   /** Coalesce window only — must not keep the in-app rebuild toast alive. */
   pending?: boolean;
