@@ -61,7 +61,6 @@ impl TxContext {
       .unwrap_or_else(|poisoned| poisoned.into_inner())
       .clone()
   }
-
 }
 
 fn prepare_hackrf_tx_payload(samples: &[u8]) -> Vec<u8> {
@@ -128,6 +127,23 @@ fn initial_tx_guard_status(
     longest_shortfall_bytes: None,
     message: status.1,
   }
+}
+
+fn tx_underrun_limit_bytes(sample_rate: u32) -> u32 {
+  ((sample_rate as u64 * 2 * HACKRF_TX_UNDERRUN_LIMIT_MS as u64) / 1000)
+    .min(u32::MAX as u64) as u32
+}
+
+fn tx_m0_state_indicates_stall(
+  active_mode: u32,
+  m0_count: u32,
+  previous_m0_count: Option<u32>,
+  tx_has_run_long_enough: bool,
+) -> bool {
+  tx_has_run_long_enough
+    && previous_m0_count.is_some_and(|previous_count| {
+      active_mode != HACKRF_TX_M0_RUN || m0_count == previous_count
+    })
 }
 
 fn read_usb_api_version(
@@ -507,11 +523,7 @@ impl HackRfDevice {
       return;
     }
 
-    let threshold_bytes = ((self.sample_rate as u64
-      * 2
-      * HACKRF_TX_UNDERRUN_LIMIT_MS as u64)
-      / 1000)
-      .min(u32::MAX as u64) as u32;
+    let threshold_bytes = tx_underrun_limit_bytes(self.sample_rate);
     let ret = unsafe { set_limit(self.dev, threshold_bytes) };
     if ret == 0 {
       self.tx_guard_status.state = "active".to_string();
@@ -701,16 +713,16 @@ impl SdrDevice for HackRfDevice {
           self.tx_guard_status.shortfalls = Some(state.num_shortfalls);
           self.tx_guard_status.longest_shortfall_bytes =
             Some(state.longest_shortfall);
-          if let Some(previous_count) = self.last_m0_count {
-            let tx_has_run_long_enough = self
-              .tx_started_at
-              .is_some_and(|started| started.elapsed() >= HACKRF_TX_DIAGNOSTIC_INTERVAL);
-            if tx_has_run_long_enough
-              && (state.active_mode != HACKRF_TX_M0_RUN
-                || state.m0_count == previous_count)
-            {
-              recovery_needed = true;
-            }
+          let tx_has_run_long_enough = self
+            .tx_started_at
+            .is_some_and(|started| started.elapsed() >= HACKRF_TX_DIAGNOSTIC_INTERVAL);
+          if tx_m0_state_indicates_stall(
+            state.active_mode,
+            state.m0_count,
+            self.last_m0_count,
+            tx_has_run_long_enough,
+          ) {
+            recovery_needed = true;
           }
           self.last_m0_count = Some(state.m0_count);
         } else if self
@@ -1106,6 +1118,93 @@ mod tests {
   #[test]
   fn tx_payload_is_padded_to_a_complete_iq_pair() {
     assert_eq!(prepare_hackrf_tx_payload(&[1, 2, 3]), vec![1, 2, 3, 0]);
+  }
+
+  #[test]
+  fn tx_underrun_limit_is_100ms_of_interleaved_iq_bytes() {
+    assert_eq!(tx_underrun_limit_bytes(2_000_000), 400_000);
+    assert_eq!(tx_underrun_limit_bytes(20_000_000), 4_000_000);
+  }
+
+  #[test]
+  fn tx_m0_progress_keeps_a_running_stream_healthy() {
+    assert!(!tx_m0_state_indicates_stall(
+      HACKRF_TX_M0_RUN,
+      200_000,
+      Some(100_000),
+      true,
+    ));
+    assert!(!tx_m0_state_indicates_stall(
+      HACKRF_TX_M0_RUN,
+      100_000,
+      Some(100_000),
+      false,
+    ));
+  }
+
+  #[test]
+  fn tx_m0_stall_or_inactive_mode_requests_recovery_after_grace_period() {
+    assert!(tx_m0_state_indicates_stall(
+      HACKRF_TX_M0_RUN,
+      100_000,
+      Some(100_000),
+      true,
+    ));
+    assert!(tx_m0_state_indicates_stall(
+      HACKRF_TX_M0_RUN - 1,
+      200_000,
+      Some(100_000),
+      true,
+    ));
+    assert!(!tx_m0_state_indicates_stall(
+      HACKRF_TX_M0_RUN,
+      100_000,
+      None,
+      true,
+    ));
+  }
+
+  #[test]
+  fn tx_callback_fills_buffer_using_the_tx_context() {
+    let context = TxContext::new(vec![1, 2, 3, 4]);
+    let mut buffer = [0; 8];
+    let mut transfer = ffi::HackRfTransfer {
+      device: ptr::null_mut(),
+      buffer: buffer.as_mut_ptr(),
+      buffer_length: buffer.len() as c_int,
+      valid_length: 0,
+      rx_ctx: ptr::null_mut(),
+      tx_ctx: (&context as *const TxContext).cast_mut().cast(),
+    };
+
+    let result = hackrf_tx_callback(&mut transfer);
+
+    assert_eq!(result, 0);
+    assert_eq!(buffer, [1, 2, 3, 4, 1, 2, 3, 4]);
+    assert_eq!(transfer.valid_length, buffer.len() as c_int);
+    assert_eq!(context.callback_count.load(Ordering::Relaxed), 1);
+    assert_eq!(context.callback_failures.load(Ordering::Relaxed), 0);
+  }
+
+  #[test]
+  fn tx_callback_rejects_rx_context_when_tx_context_is_missing() {
+    let context = TxContext::new(vec![1, 2, 3, 4]);
+    let mut buffer = [0; 4];
+    let mut transfer = ffi::HackRfTransfer {
+      device: ptr::null_mut(),
+      buffer: buffer.as_mut_ptr(),
+      buffer_length: buffer.len() as c_int,
+      valid_length: 0,
+      rx_ctx: (&context as *const TxContext).cast_mut().cast(),
+      tx_ctx: ptr::null_mut(),
+    };
+
+    let result = hackrf_tx_callback(&mut transfer);
+
+    assert_eq!(result, -1);
+    assert_eq!(buffer, [0; 4]);
+    assert_eq!(transfer.valid_length, 0);
+    assert_eq!(context.callback_count.load(Ordering::Relaxed), 0);
   }
 
   #[test]
