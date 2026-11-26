@@ -560,6 +560,7 @@ export const WebSocketMessageSchema = z.union([
     scope: z.literal("device").optional(),
     status: z.enum(["standby", "transmitting"]),
     txDevice: z.string().optional(),
+    txSourceId: z.string().optional(),
     serialNumber: z.string().optional(),
     centerFrequencyHz: CenterFrequencyHzSchema.optional(),
     bandwidthHz: z.number().optional(),

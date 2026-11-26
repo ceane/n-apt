@@ -2069,6 +2069,7 @@ export type SpectrumStoreContextValue = {
       enabled: boolean,
       device: string,
       txSettings: {
+        sourceId?: string | null;
         serialNumber: string;
         centerFrequencyHz?: number | null;
         viewCenterHz?: number | null;
@@ -3026,6 +3027,7 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
         enabled: boolean,
         device: string,
         txSettings: {
+          sourceId?: string | null;
           serialNumber: string;
           centerFrequencyHz?: number | null;
           viewCenterHz?: number | null;
@@ -3053,7 +3055,11 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
         if (!isConnected) {
           return;
         }
-        const { ifftSize, ...txSettingsWithoutIfftSize } = txSettings;
+        const {
+          ifftSize,
+          sourceId: txSourceId,
+          ...txSettingsWithoutIfftSize
+        } = txSettings;
         reduxDispatch({
           type: "websocket/sendMessage",
           payload: {
@@ -3062,6 +3068,7 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
               scope: "device",
               status: enabled ? "transmitting" : "standby",
               txDevice: device,
+              txSourceId: txSourceId ?? undefined,
               txSafetyEnabled: reduxSpectrumState.txSafetyEnabled,
               txSafetyLimit: reduxSpectrumState.txSafetyLimit,
               txSignal: reduxSpectrumState.txSignal,
@@ -3855,6 +3862,7 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
         lastSentTxSettingsRef.current = settingsStr;
         txSettingsLastSentTimeRef.current = Date.now();
         sendTransmitStatusCommand(true, controlSourceId, {
+          sourceId: controlSourceId,
           serialNumber: controlSource?.serial_number ?? controlSourceId,
           ...freshSettings,
         });

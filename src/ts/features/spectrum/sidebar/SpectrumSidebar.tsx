@@ -1927,6 +1927,7 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
           nextEnabled,
           source.name ?? sourceId,
           {
+            sourceId: source.id,
             serialNumber: source.serial_number?.trim() || sourceId,
             ...(transmitSettings ?? {
               centerFrequencyHz: fallbackCenterHz,

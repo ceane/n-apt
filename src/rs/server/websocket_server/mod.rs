@@ -1457,6 +1457,7 @@ impl WebSocketServer {
           crate::server::types::SdrCommand::SetTransmitStatus {
             enabled,
             device,
+            tx_source_id,
             tx_signal,
             center_frequency_hz,
             sample_rate_hz,
@@ -1471,10 +1472,32 @@ impl WebSocketServer {
             ppm,
             ..
           } => {
+            if enabled
+              && tx_source_id
+                .as_deref()
+                .is_some_and(|target| {
+                  active_source_id(&shared_state).as_str() != target
+                })
+            {
+              let target = tx_source_id.as_deref().unwrap_or_default();
+              log::error!(
+                "TX start refused because requested source {} is not active",
+                target
+              );
+              let payload = serde_json::json!({
+                "type": "error",
+                "source_id": target,
+                "code": "tx_source_switch_failed",
+                "message": "The requested transmit source did not become active.",
+              });
+              let _ = _broadcast_tx.send(payload.to_string());
+              continue;
+            }
             match tx_worker
               .apply_status(TxStatusRequest {
                 enabled,
                 device,
+                tx_source_id,
                 tx_signal,
                 center_frequency_hz,
                 sample_rate_hz,

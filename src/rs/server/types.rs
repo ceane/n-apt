@@ -116,6 +116,7 @@ pub enum SdrCommand {
   SetTransmitStatus {
     enabled: bool,
     device: String,
+    tx_source_id: Option<String>,
     serial_number: String,
     tx_signal: Option<String>,
     center_frequency_hz: Option<u64>,
@@ -351,6 +352,8 @@ pub struct WebSocketMessage {
   pub duplex_mode: Option<String>,
   #[serde(skip_serializing_if = "Option::is_none", alias = "txDevice")]
   pub tx_device: Option<String>,
+  #[serde(skip_serializing_if = "Option::is_none", alias = "txSourceId")]
+  pub tx_source_id: Option<String>,
   #[serde(skip_serializing_if = "Option::is_none", alias = "sourceId")]
   #[validate(regex(path = *crate::server::utils::RE_SAFE_ID))]
   pub source_id: Option<String>,
@@ -616,7 +619,7 @@ pub struct SdrConfig {
 }
 
 fn default_app_ppm_correction() -> bool {
-  true
+  false
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

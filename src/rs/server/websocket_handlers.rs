@@ -122,6 +122,47 @@ fn is_mock_tx_device_label(device: &str) -> bool {
     || normalized == "mock tx sdr"
 }
 
+fn resolve_hackrf_tx_target(
+  shared: &SharedState,
+  requested_source_id: Option<&str>,
+  device_label: &str,
+) -> Option<(String, String)> {
+  let snapshot = build_source_info_snapshot(shared);
+  let sources = snapshot["sources"].as_array()?;
+  let matches_tx_target = |source: &&serde_json::Value| {
+    source["kind"].as_str() == Some("hackrf_one")
+      && matches!(source["capability"].as_str(), Some("tx" | "tx_rx"))
+  };
+
+  let selected = if let Some(source_id) = requested_source_id {
+    sources
+      .iter()
+      .filter(matches_tx_target)
+      .find(|source| source["id"].as_str() == Some(source_id))
+  } else {
+    let normalized_label = device_label.trim().to_ascii_lowercase();
+    let mut matches =
+      sources.iter().filter(matches_tx_target).filter(|source| {
+        source["name"].as_str().is_some_and(|name| {
+          name.trim().to_ascii_lowercase() == normalized_label
+        })
+      });
+    let first = matches.next()?;
+    if matches.next().is_some() {
+      return None;
+    }
+    Some(first)
+  }?;
+
+  Some((
+    selected["id"].as_str()?.to_string(),
+    selected["serial_number"]
+      .as_str()
+      .unwrap_or_default()
+      .to_string(),
+  ))
+}
+
 fn normalize_mock_tx_monitor_sample_rate(sample_rate_hz: u32) -> u32 {
   sample_rate_hz.max(MOCK_TX_MIN_MONITOR_SAMPLE_RATE_HZ)
 }
@@ -2490,12 +2531,58 @@ fn handle_message_for_session(
         .clone()
         .unwrap_or_else(|| shared.device_info.lock().unwrap().clone());
       let is_mock_tx_device = is_mock_tx_device_label(&device);
+      let mut tx_source_id = message.tx_source_id.clone();
       info!(
         "Received status message: status={:?}, enabled={}, device={}",
         status, enabled, device
       );
       let serial_number = if is_mock_tx_device {
         MOCK_TX_SOURCE_ID.to_string()
+      } else if enabled {
+        let Some((target_source_id, target_serial)) = resolve_hackrf_tx_target(
+          shared,
+          message.tx_source_id.as_deref(),
+          &device,
+        ) else {
+          warn!(
+            "Rejecting TX start: no unambiguous HackRF target for {device}"
+          );
+          let payload = serde_json::json!({
+            "type": "error",
+            "source_id": message.tx_source_id.as_deref().unwrap_or(&device),
+            "code": "tx_source_unavailable",
+            "message": "The requested HackRF transmit source is unavailable.",
+          });
+          let _ = broadcast_tx.send(payload.to_string());
+          return;
+        };
+        tx_source_id = Some(target_source_id.clone());
+        if active_source_id(shared) != target_source_id
+          && shared.pending_source_switch().as_deref()
+            != Some(target_source_id.as_str())
+        {
+          shared.request_source_switch(&target_source_id);
+          if let Err(error) =
+            cmd_tx.send(super::types::SdrCommand::SetActiveSource {
+              source_id: target_source_id.clone(),
+              sample_rate: None,
+            })
+          {
+            shared.clear_pending_source_switch(&target_source_id);
+            warn!(
+              "Unable to activate HackRF TX source {target_source_id}: {error}"
+            );
+            let payload = serde_json::json!({
+              "type": "error",
+              "source_id": target_source_id,
+              "code": "tx_source_switch_failed",
+              "message": "Unable to activate the requested HackRF transmit source.",
+            });
+            let _ = broadcast_tx.send(payload.to_string());
+            return;
+          }
+        }
+        target_serial
       } else {
         shared.device_serial.lock().unwrap().clone()
       };
@@ -2717,6 +2804,7 @@ fn handle_message_for_session(
       let _ = cmd_tx.send(super::types::SdrCommand::SetTransmitStatus {
         enabled,
         device: device.clone(),
+        tx_source_id,
         serial_number: serial_number.clone(),
         tx_signal: Some(tx_signal),
         center_frequency_hz: Some(tx_center_frequency_hz),

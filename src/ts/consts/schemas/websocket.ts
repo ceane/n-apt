@@ -535,6 +535,7 @@ export type WebSocketMessage =
       scope?: "device";
       status: "standby" | "transmitting";
       txDevice?: string;
+      txSourceId?: string;
       serialNumber?: string;
       centerFrequencyHz?: number;
       bandwidthHz?: number;
