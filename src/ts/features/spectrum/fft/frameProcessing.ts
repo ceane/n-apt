@@ -306,6 +306,7 @@ export const resolveLiveSpectrumPaintContract = ({
   activeSampleRateHz,
   allowCoveredLiveViewport = false,
   allowPendingLiveViewport = false,
+  isTxMonitorFrame = false,
   zoom,
   panOffsetHz,
   mirrorEnabled,
@@ -319,6 +320,8 @@ export const resolveLiveSpectrumPaintContract = ({
   allowCoveredLiveViewport?: boolean;
   /** Keep the resident frame's true source axis while a replacement FFT is pending. */
   allowPendingLiveViewport?: boolean;
+  /** TX previews and monitor frames always keep their measured frequency axis. */
+  isTxMonitorFrame?: boolean;
   zoom: number;
   panOffsetHz: number;
   mirrorEnabled: boolean;
@@ -388,7 +391,7 @@ export const resolveLiveSpectrumPaintContract = ({
     panOffsetHz: safePan,
     mirrorEnabled,
   });
-  if (allowPendingLiveViewport && !isPaused) {
+  if (isTxMonitorFrame || (allowPendingLiveViewport && !isPaused)) {
     const pendingViewportIsCovered = isSpectrumViewportCoveredByAcquisition({
       displayRange: requestedCoordinates.displayRange,
       sourceFrequencyRange: safeSourceRange,

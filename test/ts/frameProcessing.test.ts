@@ -506,6 +506,26 @@ describe("resolveLiveSpectrumCoordinateModel", () => {
 });
 
 describe("resolveLiveSpectrumPaintContract", () => {
+  it("paints a narrow TX monitor frame on its own axis while the viewport is wider", () => {
+    const requestedViewRange = { min: 24_865_000, max: 31_135_000 };
+    const sourceFrequencyRange = { min: 25_814_000, max: 30_186_000 };
+    for (const isPaused of [false, true]) {
+      const contract = resolveLiveSpectrumPaintContract({
+        requestedViewRange,
+        sourceFrequencyRange,
+        activeSampleRateHz: 6_270_000,
+        isTxMonitorFrame: true,
+        isPaused,
+        zoom: 1,
+        panOffsetHz: 0,
+        mirrorEnabled: false,
+      });
+      expect(contract.paintViewportRange).toEqual(sourceFrequencyRange);
+      expect(contract.sourceFrequencyRange).toEqual(sourceFrequencyRange);
+      expect(contract.displayRange).toEqual(sourceFrequencyRange);
+    }
+  });
+
   const FLOOR = -120;
 
   it("re-bases a start-anchored redux pan onto the live CF ± fs/2 axis", () => {

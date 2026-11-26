@@ -3731,6 +3731,9 @@ const FFTCanvas = memo(
     const forceRenderRef = useRef<((reprocessFrame?: boolean) => void) | null>(
       null,
     );
+    const interactionRenderRef = useRef<
+      ((reprocessFrame?: boolean) => void) | null
+    >(null);
 
     useEffect(() => {
       if (!isStatusCarouselActive) return;
@@ -5188,6 +5191,10 @@ const FFTCanvas = memo(
             requestedViewRange,
             sourceFrequencyRange,
             activeSampleRateHz: hardwareSampleRateHz,
+            isTxMonitorFrame:
+              frameAcquisitionRange !== null &&
+              (isTxPreviewFrame ||
+                currentFrame?.frame_status === "transmitting"),
             allowCoveredLiveViewport: viewportOnlyRedraw && !isPaused,
             zoom: vizZoomRef.current || 1,
             panOffsetHz: vizPanOffsetRef.current,
@@ -6039,6 +6046,7 @@ const FFTCanvas = memo(
       onBecomeVisible,
       targetFPS: fftFrameRate,
       forceRenderRef,
+      interactionRenderRef,
     });
 
     useFftCanvasInvalidation({
