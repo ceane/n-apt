@@ -519,6 +519,13 @@ fn build_source_payload(
   is_active_source: bool,
 ) -> serde_json::Value {
   let device_profile = build_device_profile(kind);
+  let tx_underrun_guard = if is_active_source
+    && matches!(kind, "hackrf_one" | "hackrf")
+  {
+    shared.tx_underrun_guard_status.lock().unwrap().clone()
+  } else {
+    None
+  };
   let sdr_settings = shared.sdr_settings.lock().unwrap().clone();
   let (max_sample_rate, sample_rate_options) =
     resolve_device_sample_rate_options(
@@ -663,6 +670,7 @@ fn build_source_payload(
     "loading_attempt": loading_attempt,
     "loading_attempt_max": loading_attempt_max,
     "supports_approx_dbm": device_profile.supports_approx_dbm,
+    "tx_underrun_guard": tx_underrun_guard,
     "iq_format": device_profile.iq_format,
     "capabilities": {
       "can_receive": can_receive,

@@ -566,6 +566,20 @@ impl SdrProcessor {
     self.device.update_transmit_iq(samples)
   }
 
+  pub fn tx_underrun_guard_status(
+    &self,
+  ) -> Option<crate::sdr::TxUnderrunGuardStatus> {
+    self.device.tx_underrun_guard_status()
+  }
+
+  pub fn poll_transmit_health(&mut self) -> Option<crate::sdr::TxStreamHealth> {
+    self.device.poll_transmit_health()
+  }
+
+  pub fn recover_transmit(&mut self) -> Result<bool> {
+    self.device.recover_transmit()
+  }
+
   pub fn set_sample_rate(&mut self, rate: u32) -> Result<()> {
     self.device.set_sample_rate(rate)
   }

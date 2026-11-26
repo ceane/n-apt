@@ -446,6 +446,14 @@ export interface SourceInfo {
   loading_attempt: number;
   loading_attempt_max: number;
   supports_approx_dbm: boolean;
+  tx_underrun_guard?: {
+    state: string;
+    usb_api_version?: number;
+    threshold_bytes?: number;
+    shortfalls?: number;
+    longest_shortfall_bytes?: number;
+    message?: string;
+  } | null;
   iq_format?: IqFormat;
   /** Generic source capability envelope. */
   capabilities?: SourceCapabilities;

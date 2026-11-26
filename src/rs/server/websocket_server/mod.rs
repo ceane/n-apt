@@ -131,11 +131,13 @@ fn spawn_tx_monitor_stream(
   shared_state: Arc<SharedState>,
   processor: Option<Arc<Mutex<SdrProcessor>>>,
   stream_manager: StreamingSourceModeManager,
+  broadcast_tx: broadcast::Sender<String>,
 ) -> tokio::task::JoinHandle<()> {
   crate::tx::monitor::spawn_monitor_stream(
     shared_state,
     processor,
     stream_manager,
+    broadcast_tx,
   )
 }
 
@@ -529,7 +531,7 @@ mod tests {
 
   #[tokio::test]
   #[serial]
-  async fn active_hackrf_tx_monitor_emits_fresh_iq_for_each_tick() {
+  async fn active_hackrf_tx_monitor_does_not_publish_without_processor() {
     std::env::set_var("UNSAFE_LOCAL_USER_PASSWORD", "test-password");
     let _mock_tx_test_guard =
       complex_baseband::MOCK_TX_TEST_LOCK.lock().unwrap();
@@ -559,34 +561,18 @@ mod tests {
     stream_manager.set_tx_payload(tx_key, 2_400_000, 2_000_000, tx_iq.clone());
     crate::safety::TX_TRANSMITTING.store(true, Ordering::Relaxed);
 
-    let monitor = spawn_tx_monitor_stream(shared.clone(), None, stream_manager);
-    let first =
-      tokio::time::timeout(Duration::from_secs(2), subscription.recv())
+    let monitor = spawn_tx_monitor_stream(
+      shared.clone(),
+      None,
+      stream_manager,
+      tokio::sync::broadcast::channel(1).0,
+    );
+    assert!(
+      tokio::time::timeout(Duration::from_millis(100), subscription.recv())
         .await
-        .expect("first active HackRF Tx monitor frame should arrive")
-        .expect("active HackRF Tx subscription should remain open");
-    let second =
-      tokio::time::timeout(Duration::from_secs(2), subscription.recv())
-        .await
-        .expect("second active HackRF Tx monitor frame should arrive")
-        .expect("active HackRF Tx subscription should remain open");
-
-    let crate::server::stream_manager::StreamEvent::Frame(first) = first else {
-      panic!("expected first managed HackRF Tx monitor frame");
-    };
-    let crate::server::stream_manager::StreamEvent::Frame(second) = second
-    else {
-      panic!("expected second managed HackRF Tx monitor frame");
-    };
-    assert_eq!(first.key.source_id, "hackrf_one-test");
-    assert_eq!(second.key.source_id, "hackrf_one-test");
-    assert!(second.sequence > first.sequence);
-    // Hardware monitor frames are regenerated from the active TX geometry on
-    // every tick so the client sees the actual current waveform, rather than
-    // the short seed payload used to prime the stream manager.
-    assert!(!first.iq_data.is_empty());
-    assert_eq!(first.iq_data.len(), second.iq_data.len());
-    assert_ne!(second.iq_data, first.iq_data);
+        .is_err(),
+      "HackRF monitor must not publish a synthetic block without updating the processor"
+    );
 
     shared.shutdown.store(true, Ordering::Relaxed);
     monitor
@@ -624,7 +610,12 @@ mod tests {
     crate::safety::TX_TRANSMITTING.store(true, Ordering::Relaxed);
     shared.mock_tx_transmitting.store(true, Ordering::Relaxed);
 
-    let monitor = spawn_tx_monitor_stream(shared.clone(), None, stream_manager);
+    let monitor = spawn_tx_monitor_stream(
+      shared.clone(),
+      None,
+      stream_manager,
+      tokio::sync::broadcast::channel(1).0,
+    );
     let first =
       tokio::time::timeout(Duration::from_secs(2), subscription.recv())
         .await
@@ -687,7 +678,12 @@ mod tests {
     crate::safety::TX_TRANSMITTING.store(true, Ordering::Relaxed);
     shared.mock_tx_transmitting.store(true, Ordering::Relaxed);
 
-    let monitor = spawn_tx_monitor_stream(shared.clone(), None, stream_manager);
+    let monitor = spawn_tx_monitor_stream(
+      shared.clone(),
+      None,
+      stream_manager,
+      tokio::sync::broadcast::channel(1).0,
+    );
     let first =
       tokio::time::timeout(Duration::from_secs(2), subscription.recv())
         .await
@@ -757,7 +753,12 @@ mod tests {
       )
       .expect("managed Tx subscription should open");
 
-    let monitor = spawn_tx_monitor_stream(shared.clone(), None, stream_manager);
+    let monitor = spawn_tx_monitor_stream(
+      shared.clone(),
+      None,
+      stream_manager,
+      tokio::sync::broadcast::channel(1).0,
+    );
     assert!(
       tokio::time::timeout(Duration::from_millis(100), subscription.recv())
         .await
@@ -1147,6 +1148,9 @@ impl WebSocketServer {
       processor.get_device_info(),
       build_device_profile(processor.device_type()),
     );
+    shared.set_tx_underrun_guard_status(
+      processor.tx_underrun_guard_status(),
+    );
     // Publish the rate the device actually accepted before clients build
     // their first managed-stream subscription. RTL-SDR, for example, clamps
     // a persisted 4.372 MHz request to its 3.2 MHz hardware limit; leaving
@@ -1235,6 +1239,7 @@ impl WebSocketServer {
       shared_state.clone(),
       Some(sdr_processor.clone()),
       stream_manager.clone(),
+      _broadcast_tx.clone(),
     );
     let mut warm_devices: HashMap<String, Box<dyn crate::sdr::SdrDevice>> =
       HashMap::new();

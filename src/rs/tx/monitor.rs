@@ -73,6 +73,7 @@ pub(crate) fn spawn_monitor_stream(
   shared_state: Arc<SharedState>,
   processor: Option<Arc<Mutex<SdrProcessor>>>,
   stream_manager: StreamingSourceModeManager,
+  broadcast_tx: broadcast::Sender<String>,
 ) -> tokio::task::JoinHandle<()> {
   tokio::spawn(async move {
     let mut ticker = tokio::time::interval(
@@ -133,9 +134,68 @@ pub(crate) fn spawn_monitor_stream(
             payload.center_frequency_hz,
             payload.sample_rate_hz,
           );
-          if let Some(processor) = processor.as_ref() {
-            let mut processor = processor.lock().await;
-            let _ = processor.update_transmit_iq(&next_iq);
+          let Some(processor) = processor.as_ref() else {
+            let error =
+              "HackRF TX monitor has no processor for the physical stream.";
+            crate::safety::TX_TRANSMITTING.store(false, Ordering::Relaxed);
+            shared_state.set_device_backend_error(Some(error.to_string()));
+            shared_state.set_device_state("stale", Some("restart"));
+            broadcast_device_status(&shared_state, &broadcast_tx);
+            continue;
+          };
+          let mut processor = processor.lock().await;
+          let mut failure = None;
+          if let Some(health) = processor.poll_transmit_health() {
+            if let Some(status) = health.guard_status {
+              if shared_state.set_tx_underrun_guard_status(Some(status)) {
+                broadcast_device_status(&shared_state, &broadcast_tx);
+              }
+            }
+            if health.recovery_needed {
+              match processor.recover_transmit() {
+                Ok(true) => {
+                  log::warn!(
+                    "HackRF TX stream stopped; one bounded recovery succeeded"
+                  );
+                  if shared_state.set_tx_underrun_guard_status(
+                    processor.tx_underrun_guard_status(),
+                  ) {
+                    broadcast_device_status(&shared_state, &broadcast_tx);
+                  }
+                }
+                Ok(false) => {
+                  failure = Some(
+                    "HackRF TX stream stopped without a recoverable IQ buffer."
+                      .to_string(),
+                  );
+                }
+                Err(error) => failure = Some(error.to_string()),
+              }
+            }
+          } else {
+            failure = Some(
+              "HackRF TX health monitoring lost the active IQ context."
+                .to_string(),
+            );
+          }
+          if failure.is_none() {
+            if let Err(error) = processor.update_transmit_iq(&next_iq) {
+              failure = Some(format!(
+                "HackRF rejected the next IQ block: {error}"
+              ));
+            }
+          }
+          if let Some(error) = failure {
+            let _ = processor.transmit_iq(None);
+            crate::safety::TX_TRANSMITTING
+              .store(false, Ordering::Relaxed);
+            shared_state.set_device_backend_error(Some(error.clone()));
+            shared_state.set_device_state("stale", Some("restart"));
+            shared_state.set_tx_underrun_guard_status(
+              processor.tx_underrun_guard_status(),
+            );
+            broadcast_device_status(&shared_state, &broadcast_tx);
+            continue;
           }
           stream_manager.set_tx_payload(
             tx_key.clone(),
@@ -595,6 +655,15 @@ impl TxWorker {
       hardware_result?;
     }
 
+    let guard_status_changed = if active_kind == "hackrf_one" {
+      let processor = self.processor.lock().await;
+      self
+        .shared_state
+        .set_tx_underrun_guard_status(processor.tx_underrun_guard_status())
+    } else {
+      false
+    };
+
     if transmit_capable {
       crate::safety::TX_TRANSMITTING.store(enabled, Ordering::Relaxed);
     }
@@ -617,6 +686,8 @@ impl TxWorker {
       );
     }
     if status_changed {
+      broadcast_device_status(&self.shared_state, &self.broadcast_tx);
+    } else if guard_status_changed {
       broadcast_device_status(&self.shared_state, &self.broadcast_tx);
     }
 

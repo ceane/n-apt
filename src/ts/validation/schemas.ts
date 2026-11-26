@@ -278,6 +278,17 @@ export const SourceInfoSchema = z.object({
   loading_attempt: z.number().int().nonnegative(),
   loading_attempt_max: z.number().int().nonnegative(),
   supports_approx_dbm: z.boolean(),
+  tx_underrun_guard: z
+    .object({
+      state: z.string(),
+      usb_api_version: z.number().int().nonnegative().optional(),
+      threshold_bytes: z.number().int().nonnegative().optional(),
+      shortfalls: z.number().int().nonnegative().optional(),
+      longest_shortfall_bytes: z.number().int().nonnegative().optional(),
+      message: z.string().optional(),
+    })
+    .nullable()
+    .optional(),
   iq_format: z
     .object({
       element_type: z.literal("u8"),

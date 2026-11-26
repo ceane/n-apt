@@ -1,4 +1,5 @@
 use std::os::raw::{c_char, c_int, c_uint, c_void};
+use std::sync::OnceLock;
 
 pub enum HackRfDeviceHandle {}
 
@@ -24,6 +25,96 @@ pub struct HackRfTransfer {
   pub valid_length: c_int,
   pub rx_ctx: *mut c_void,
   pub tx_ctx: *mut c_void,
+}
+
+/// Device-side state returned by libhackrf's USB API 0x0106 diagnostic call.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default)]
+pub struct HackRfM0State {
+  pub requested_mode: u16,
+  pub request_flag: u16,
+  pub active_mode: u32,
+  pub m0_count: u32,
+  pub m4_count: u32,
+  pub num_shortfalls: u32,
+  pub longest_shortfall: u32,
+  pub shortfall_limit: u32,
+  pub threshold: u32,
+  pub next_mode: u32,
+  pub error: u32,
+}
+
+pub type HackRfUsbApiVersionRead = unsafe extern "C" fn(
+  device: *mut HackRfDeviceHandle,
+  version: *mut u16,
+) -> c_int;
+pub type HackRfSetTxUnderrunLimit = unsafe extern "C" fn(
+  device: *mut HackRfDeviceHandle,
+  value: u32,
+) -> c_int;
+pub type HackRfGetM0State = unsafe extern "C" fn(
+  device: *mut HackRfDeviceHandle,
+  state: *mut HackRfM0State,
+) -> c_int;
+
+#[derive(Clone, Copy, Default)]
+pub struct HackRfExtendedApi {
+  pub usb_api_version_read: Option<HackRfUsbApiVersionRead>,
+  pub set_tx_underrun_limit: Option<HackRfSetTxUnderrunLimit>,
+  pub get_m0_state: Option<HackRfGetM0State>,
+}
+
+/// Resolve newer optional exports at runtime so an older host libhackrf can
+/// still load and report that the TX guard needs a software update.
+pub fn extended_api() -> &'static HackRfExtendedApi {
+  static API: OnceLock<HackRfExtendedApi> = OnceLock::new();
+  API.get_or_init(|| unsafe {
+    HackRfExtendedApi {
+      usb_api_version_read: resolve_symbol(
+        b"hackrf_usb_api_version_read\0",
+      ),
+      set_tx_underrun_limit: resolve_symbol(
+        b"hackrf_set_tx_underrun_limit\0",
+      ),
+      get_m0_state: resolve_symbol(b"hackrf_get_m0_state\0"),
+    }
+  })
+}
+
+#[cfg(target_os = "linux")]
+#[link(name = "dl")]
+unsafe extern "C" {
+  fn dlsym(handle: *mut c_void, symbol: *const c_char) -> *mut c_void;
+}
+
+#[cfg(target_os = "macos")]
+unsafe extern "C" {
+  fn dlsym(handle: *mut c_void, symbol: *const c_char) -> *mut c_void;
+}
+
+unsafe fn resolve_symbol<T: Copy>(name: &'static [u8]) -> Option<T> {
+  #[cfg(target_os = "linux")]
+  let handle = std::ptr::null_mut(); // RTLD_DEFAULT
+  #[cfg(target_os = "macos")]
+  let handle = (-2isize) as *mut c_void; // RTLD_DEFAULT
+
+  #[cfg(any(target_os = "linux", target_os = "macos"))]
+  {
+    let symbol = dlsym(handle, name.as_ptr().cast());
+    if symbol.is_null() {
+      None
+    } else {
+      // POSIX permits converting a dlsym result to the function pointer type
+      // associated with the named C symbol.
+      Some(std::mem::transmute_copy(&symbol))
+    }
+  }
+
+  #[cfg(not(any(target_os = "linux", target_os = "macos")))]
+  {
+    let _ = name;
+    None
+  }
 }
 
 pub type HackRfSampleBlockCb =

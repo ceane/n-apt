@@ -13,6 +13,7 @@
 
 use crate::signal_port::fft::types::RawSamples;
 use anyhow::Result;
+use serde::Serialize;
 #[cfg(has_hackrf)]
 use std::thread;
 #[cfg(has_hackrf)]
@@ -25,6 +26,28 @@ const HACKRF_OPEN_RETRY_ATTEMPTS: usize = 5;
 /// that needs the retry window is typically ready again within ~100 ms.
 #[cfg(has_hackrf)]
 const HACKRF_OPEN_RETRY_DELAY: Duration = Duration::from_millis(100);
+
+/// HackRF TX underrun protection and recent device-side diagnostics.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+pub struct TxUnderrunGuardStatus {
+  pub state: String,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub usb_api_version: Option<u16>,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub threshold_bytes: Option<u32>,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub shortfalls: Option<u32>,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub longest_shortfall_bytes: Option<u32>,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub message: Option<String>,
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct TxStreamHealth {
+  pub recovery_needed: bool,
+  pub guard_status: Option<TxUnderrunGuardStatus>,
+}
 
 #[cfg(has_hackrf)]
 fn open_hackrf_with_retry() -> Result<Box<dyn SdrDevice>> {
@@ -93,6 +116,21 @@ pub trait SdrDevice: Send {
   /// Devices that do not support a live payload swap retain the default error.
   fn update_transmit_iq(&mut self, _samples: &[u8]) -> Result<()> {
     Err(anyhow::anyhow!("This SDR does not support live TX payload updates"))
+  }
+
+  /// Report physical TX underrun protection when this device supports it.
+  fn tx_underrun_guard_status(&self) -> Option<TxUnderrunGuardStatus> {
+    None
+  }
+
+  /// Poll TX health from a control task, never from a USB transfer callback.
+  fn poll_transmit_health(&mut self) -> Option<TxStreamHealth> {
+    None
+  }
+
+  /// Restart a failed TX stream once using the last accepted IQ payload.
+  fn recover_transmit(&mut self) -> Result<bool> {
+    Ok(false)
   }
 
   /// Return an owned IQ sample buffer to devices that can reuse it.

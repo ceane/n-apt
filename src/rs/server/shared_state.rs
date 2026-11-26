@@ -240,6 +240,9 @@ pub struct SharedState {
   pub device_product: Mutex<String>,
   /// Backend/device error string surfaced to the frontend when available.
   pub device_backend_error: Mutex<Option<String>>,
+  /// TX underrun guard state for the currently active HackRF source.
+  pub tx_underrun_guard_status:
+    Mutex<Option<crate::sdr::TxUnderrunGuardStatus>>,
   /// Current device profile/capabilities for frontend feature gating
   pub device_profile: Mutex<DeviceProfile>,
   /// Source requested by a client while the active processor is still on the
@@ -405,6 +408,7 @@ impl SharedState {
       device_manufacturer: Mutex::new(String::new()),
       device_product: Mutex::new(String::new()),
       device_backend_error: Mutex::new(None),
+      tx_underrun_guard_status: Mutex::new(None),
       device_profile: Mutex::new(DeviceProfile {
         kind: "mock_apt".to_string(),
         is_rtl_sdr: false,
@@ -731,6 +735,9 @@ impl SharedState {
     self.device_connected.store(connected, Ordering::Relaxed);
     *self.device_info.lock().unwrap() = info;
     let kind = device_profile.kind.clone();
+    if kind != "hackrf_one" && kind != "hackrf" {
+      *self.tx_underrun_guard_status.lock().unwrap() = None;
+    }
     if kind == "mock_tx" {
       self.mock_tx_was_active.store(true, Ordering::Release);
     }
@@ -810,6 +817,18 @@ impl SharedState {
 
   pub fn set_device_backend_error(&self, error: Option<String>) {
     *self.device_backend_error.lock().unwrap() = error;
+  }
+
+  pub fn set_tx_underrun_guard_status(
+    &self,
+    status: Option<crate::sdr::TxUnderrunGuardStatus>,
+  ) -> bool {
+    let mut current = self.tx_underrun_guard_status.lock().unwrap();
+    if *current == status {
+      return false;
+    }
+    *current = status;
+    true
   }
 
   /// Record that the exclusive USB SDR is no longer owned by this process.

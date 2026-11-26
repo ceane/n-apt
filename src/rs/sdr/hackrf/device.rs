@@ -3,8 +3,9 @@ use crossbeam_channel::{bounded, Receiver, Sender};
 use std::ffi::CStr;
 use std::os::raw::c_int;
 use std::ptr;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, OnceLock};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use super::ffi;
 use crate::sdr::audio_iq_tap::{AudioIqBlock, AudioIqTap};
@@ -17,6 +18,11 @@ const HACKRF_BLOCK_SIZE: usize = 16_384;
 const HACKRF_RX_TIMEOUT: Duration = Duration::from_millis(500);
 const HACKRF_RX_START_RETRY_ATTEMPTS: usize = 5;
 const HACKRF_RX_START_RETRY_DELAY: Duration = Duration::from_millis(250);
+const HACKRF_TX_UNDERRUN_LIMIT_MS: u32 = 100;
+const HACKRF_TX_DIAGNOSTIC_INTERVAL: Duration = Duration::from_millis(500);
+const HACKRF_TX_M0_RUN: u32 = 4;
+const HACKRF_TX_USB_API_REQUIRED: u16 = 0x0106;
+const HACKRF_TX_TRANSFER_BYTES: u64 = 262_144;
 
 static HACKRF_NATIVE_OPERATION_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
 
@@ -25,11 +31,19 @@ struct RxContext {
 }
 struct TxContext {
   iq: Mutex<Vec<u8>>,
+  callback_count: AtomicU64,
+  callback_failures: AtomicU64,
+  max_callback_duration_us: AtomicU64,
 }
 
 impl TxContext {
   fn new(iq: Vec<u8>) -> Self {
-    Self { iq: Mutex::new(iq) }
+    Self {
+      iq: Mutex::new(iq),
+      callback_count: AtomicU64::new(0),
+      callback_failures: AtomicU64::new(0),
+      max_callback_duration_us: AtomicU64::new(0),
+    }
   }
 
   fn replace_iq(&self, iq: Vec<u8>) {
@@ -39,6 +53,7 @@ impl TxContext {
       .unwrap_or_else(|poisoned| poisoned.into_inner()) = iq;
   }
 
+  #[cfg(test)]
   fn snapshot_iq(&self) -> Vec<u8> {
     self
       .iq
@@ -46,6 +61,7 @@ impl TxContext {
       .unwrap_or_else(|poisoned| poisoned.into_inner())
       .clone()
   }
+
 }
 
 fn prepare_hackrf_tx_payload(samples: &[u8]) -> Vec<u8> {
@@ -75,6 +91,51 @@ fn drain_rx_queue(rx: &Receiver<Vec<u8>>) -> usize {
     drained += 1;
   }
   drained
+}
+
+fn initial_tx_guard_status(
+  usb_api_version: Option<u16>,
+) -> crate::sdr::TxUnderrunGuardStatus {
+  let api = ffi::extended_api();
+  let status = if api.set_tx_underrun_limit.is_none()
+    || api.get_m0_state.is_none()
+    || api.usb_api_version_read.is_none()
+  {
+    ("host_update_required", Some(
+      "Installed host libhackrf is missing the TX underrun or M0 diagnostics API."
+        .to_string(),
+    ))
+  } else if usb_api_version
+    .is_some_and(|version| version < HACKRF_TX_USB_API_REQUIRED)
+  {
+    ("firmware_update_required", Some(
+      "HackRF firmware USB API 1.06 or newer is required for TX underrun protection."
+        .to_string(),
+    ))
+  } else if usb_api_version.is_none() {
+    ("host_update_required", Some(
+      "Could not read the HackRF USB API version; update host libhackrf and firmware."
+        .to_string(),
+    ))
+  } else {
+    ("available", None)
+  };
+  crate::sdr::TxUnderrunGuardStatus {
+    state: status.0.to_string(),
+    usb_api_version,
+    threshold_bytes: None,
+    shortfalls: None,
+    longest_shortfall_bytes: None,
+    message: status.1,
+  }
+}
+
+fn read_usb_api_version(
+  device: *mut ffi::HackRfDeviceHandle,
+) -> Option<u16> {
+  let read_version = ffi::extended_api().usb_api_version_read?;
+  let mut version = 0;
+  (unsafe { read_version(device, &mut version) } == 0).then_some(version)
 }
 
 /// Tap every block consumed for one display read and return the newest block.
@@ -119,6 +180,15 @@ pub struct HackRfDevice {
   audio_tap: AudioIqTap,
   streaming_started: bool,
   serial_number: String,
+  tx_guard_status: crate::sdr::TxUnderrunGuardStatus,
+  tx_started_at: Option<Instant>,
+  last_tx_diagnostic_at: Option<Instant>,
+  last_m0_count: Option<u32>,
+  last_callback_failures: u64,
+  tx_recovery_attempted: bool,
+  lna_gain: u32,
+  vga_gain: u32,
+  amp_enabled: bool,
   /// True while this handle owns the process-wide hackrf session opened by
   /// `hackrf_init`. Guards the exit so an explicit `cleanup()` followed by the
   /// later `Drop` cannot tear the native session down twice.
@@ -155,21 +225,31 @@ extern "C" fn hackrf_rx_callback(transfer: *mut ffi::HackRfTransfer) -> c_int {
 }
 
 extern "C" fn hackrf_tx_callback(transfer: *mut ffi::HackRfTransfer) -> c_int {
-  let res = std::panic::catch_unwind(|| {
-    if transfer.is_null() {
-      return -1;
+  if transfer.is_null() {
+    return -1;
+  }
+  let transfer = unsafe { &mut *transfer };
+  let context = if transfer.tx_ctx.is_null() {
+    None
+  } else {
+    Some(unsafe { &*(transfer.tx_ctx as *const TxContext) })
+  };
+  let Some(context) = context else {
+    return -1;
+  };
+  let callback_started = Instant::now();
+  context.callback_count.fetch_add(1, Ordering::Relaxed);
+
+  let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+    if transfer.buffer.is_null() || transfer.buffer_length <= 0 {
+      return Err(());
     }
-    let transfer = unsafe { &mut *transfer };
-    if transfer.buffer.is_null()
-      || transfer.buffer_length <= 0
-      || transfer.tx_ctx.is_null()
-    {
-      return -1;
-    }
-    let ctx = unsafe { &*(transfer.tx_ctx as *const TxContext) };
-    let iq = ctx.snapshot_iq();
+    let iq = context
+      .iq
+      .lock()
+      .unwrap_or_else(|poisoned| poisoned.into_inner());
     if iq.is_empty() {
-      return -1;
+      return Err(());
     }
     let output = unsafe {
       std::slice::from_raw_parts_mut(
@@ -177,13 +257,34 @@ extern "C" fn hackrf_tx_callback(transfer: *mut ffi::HackRfTransfer) -> c_int {
         transfer.buffer_length as usize,
       )
     };
-    if crate::tx::repeat_iq_payload_into(&iq, output).is_err() {
-      return -1;
-    }
+    crate::tx::repeat_iq_payload_into(&iq, output).map_err(|_| ())?;
     transfer.valid_length = output.len() as c_int;
-    0
-  });
-  res.unwrap_or(-1)
+    Ok(())
+  }));
+
+  let callback_result = match result {
+    Ok(Ok(())) => 0,
+    _ => {
+      context.callback_failures.fetch_add(1, Ordering::Relaxed);
+      -1
+    }
+  };
+  let callback_duration_us = callback_started.elapsed().as_micros() as u64;
+  let mut previous_max = context
+    .max_callback_duration_us
+    .load(Ordering::Relaxed);
+  while callback_duration_us > previous_max {
+    match context.max_callback_duration_us.compare_exchange_weak(
+      previous_max,
+      callback_duration_us,
+      Ordering::Relaxed,
+      Ordering::Relaxed,
+    ) {
+      Ok(_) => break,
+      Err(actual) => previous_max = actual,
+    }
+  }
+  callback_result
 }
 
 impl HackRfDevice {
@@ -265,6 +366,7 @@ impl HackRfDevice {
         let _ = ffi::hackrf_exit();
         return Err(anyhow!("Failed to open HackRF One device #{}", index));
       }
+      let usb_api_version = read_usb_api_version(dev);
       let (_tx, rx) = bounded::<Vec<u8>>(HACKRF_RX_QUEUE_DEPTH);
       Ok(Self {
         dev,
@@ -280,6 +382,15 @@ impl HackRfDevice {
         audio_tap: AudioIqTap::new(),
         streaming_started: false,
         serial_number,
+        tx_guard_status: initial_tx_guard_status(usb_api_version),
+        tx_started_at: None,
+        last_tx_diagnostic_at: None,
+        last_m0_count: None,
+        last_callback_failures: 0,
+        tx_recovery_attempted: false,
+        lna_gain: 0,
+        vga_gain: 0,
+        amp_enabled: false,
         native_session_active: true,
       })
     }
@@ -362,6 +473,80 @@ impl HackRfDevice {
       let _ = unsafe { ffi::hackrf_stop_tx(self.dev) };
       self.tx_started = false;
     }
+    self.tx_started_at = None;
+    self.last_tx_diagnostic_at = None;
+    self.last_m0_count = None;
+    if self.tx_guard_status.state == "active" {
+      self.tx_guard_status.state = "available".to_string();
+      self.tx_guard_status.threshold_bytes = None;
+    }
+  }
+
+  fn configure_tx_underrun_guard(&mut self) {
+    let api = *ffi::extended_api();
+    let Some(set_limit) = api.set_tx_underrun_limit else {
+      self.tx_guard_status.state = "host_update_required".to_string();
+      self.tx_guard_status.threshold_bytes = None;
+      self.tx_guard_status.message = Some(
+        "Installed host libhackrf does not export hackrf_set_tx_underrun_limit."
+          .to_string(),
+      );
+      return;
+    };
+    if self
+      .tx_guard_status
+      .usb_api_version
+      .is_some_and(|version| version < HACKRF_TX_USB_API_REQUIRED)
+    {
+      self.tx_guard_status.state = "firmware_update_required".to_string();
+      self.tx_guard_status.threshold_bytes = None;
+      self.tx_guard_status.message = Some(
+        "HackRF firmware must support USB API 1.06 or newer for the underrun guard."
+          .to_string(),
+      );
+      return;
+    }
+
+    let threshold_bytes = ((self.sample_rate as u64
+      * 2
+      * HACKRF_TX_UNDERRUN_LIMIT_MS as u64)
+      / 1000)
+      .min(u32::MAX as u64) as u32;
+    let ret = unsafe { set_limit(self.dev, threshold_bytes) };
+    if ret == 0 {
+      self.tx_guard_status.state = "active".to_string();
+      self.tx_guard_status.threshold_bytes = Some(threshold_bytes);
+      self.tx_guard_status.message = if api.get_m0_state.is_none() {
+        Some(
+          "The underrun limit is active, but host libhackrf lacks M0 stream diagnostics."
+            .to_string(),
+        )
+      } else {
+        None
+      };
+    } else {
+      let firmware_is_old = self
+        .tx_guard_status
+        .usb_api_version
+        .is_some_and(|version| version < HACKRF_TX_USB_API_REQUIRED);
+      self.tx_guard_status.state = if firmware_is_old {
+        "firmware_update_required"
+      } else {
+        "configuration_error"
+      }
+      .to_string();
+      self.tx_guard_status.threshold_bytes = None;
+      self.tx_guard_status.message = Some(format!(
+        "Could not enable the HackRF TX underrun limit (libhackrf error {ret})."
+      ));
+    }
+  }
+
+  fn mark_tx_recovery_failed(&mut self, message: String) {
+    self.stop_transmitting();
+    self.tx_guard_status.state = "recovery_failed".to_string();
+    self.tx_guard_status.message = Some(message.clone());
+    self.last_error = Some(message);
   }
 
   fn cleanup_inner(&mut self) {
@@ -417,10 +602,12 @@ impl SdrDevice for HackRfDevice {
       Some(samples) => {
         self.stop_transmitting();
         self.stop_streaming();
+        self.tx_recovery_attempted = false;
         let payload = prepare_hackrf_tx_payload(samples);
         if payload.is_empty() {
           return Err(anyhow!("HackRF TX requires I/Q samples"));
         }
+        self.configure_tx_underrun_guard();
         let context = Arc::new(TxContext::new(payload));
         let ret = unsafe {
           ffi::hackrf_start_tx(
@@ -430,18 +617,27 @@ impl SdrDevice for HackRfDevice {
           )
         };
         if ret != 0 {
+          self.tx_guard_status.state = "start_failed".to_string();
+          self.tx_guard_status.message = Some(format!(
+            "Could not start HackRF TX stream (libhackrf error {ret})."
+          ));
           return Err(anyhow!(
             "Failed to start HackRF One TX streaming (error code: {})",
             ret
           ));
         }
+        self.last_callback_failures = 0;
         self.tx_context = Some(context);
         self.tx_started = true;
+        self.tx_started_at = Some(Instant::now());
+        self.last_tx_diagnostic_at = None;
+        self.last_m0_count = None;
       }
       None => {
         let was_transmitting = self.tx_started;
         self.stop_transmitting();
         self.tx_context = None;
+        self.tx_recovery_attempted = false;
         if should_resume_rx_after_tx_stop(
           was_transmitting,
           self.streaming_started,
@@ -463,6 +659,160 @@ impl SdrDevice for HackRfDevice {
     }
     context.replace_iq(payload);
     Ok(())
+  }
+
+  fn tx_underrun_guard_status(
+    &self,
+  ) -> Option<crate::sdr::TxUnderrunGuardStatus> {
+    Some(self.tx_guard_status.clone())
+  }
+
+  fn poll_transmit_health(&mut self) -> Option<crate::sdr::TxStreamHealth> {
+    let context = self.tx_context.as_ref()?;
+    let now = Instant::now();
+    let callback_failures =
+      context.callback_failures.load(Ordering::Relaxed);
+    let callback_failed = callback_failures > self.last_callback_failures;
+    self.last_callback_failures = callback_failures;
+    let mut recovery_needed = callback_failed
+      || !self.tx_started
+      || unsafe { ffi::hackrf_is_streaming(self.dev) != 1 };
+
+    if self
+      .last_tx_diagnostic_at
+      .is_none_or(|last| now.duration_since(last) >= HACKRF_TX_DIAGNOSTIC_INTERVAL)
+    {
+      self.last_tx_diagnostic_at = Some(now);
+      let transfer_budget_us =
+        (HACKRF_TX_TRANSFER_BYTES * 1_000_000
+          / (2 * self.sample_rate.max(1) as u64))
+          .max(1);
+      log::debug!(
+        "HackRF TX callbacks: count={}, failures={}, max={}us, per-transfer budget={}us",
+        context.callback_count.load(Ordering::Relaxed),
+        context.callback_failures.load(Ordering::Relaxed),
+        context.max_callback_duration_us.load(Ordering::Relaxed),
+        transfer_budget_us,
+      );
+      if let Some(get_state) = ffi::extended_api().get_m0_state {
+        let mut state = ffi::HackRfM0State::default();
+        let ret = unsafe { get_state(self.dev, &mut state) };
+        if ret == 0 {
+          self.tx_guard_status.shortfalls = Some(state.num_shortfalls);
+          self.tx_guard_status.longest_shortfall_bytes =
+            Some(state.longest_shortfall);
+          if let Some(previous_count) = self.last_m0_count {
+            let tx_has_run_long_enough = self
+              .tx_started_at
+              .is_some_and(|started| started.elapsed() >= HACKRF_TX_DIAGNOSTIC_INTERVAL);
+            if tx_has_run_long_enough
+              && (state.active_mode != HACKRF_TX_M0_RUN
+                || state.m0_count == previous_count)
+            {
+              recovery_needed = true;
+            }
+          }
+          self.last_m0_count = Some(state.m0_count);
+        } else if self
+          .tx_guard_status
+          .usb_api_version
+          .is_some_and(|version| version < HACKRF_TX_USB_API_REQUIRED)
+        {
+          self.tx_guard_status.state = "firmware_update_required".to_string();
+          self.tx_guard_status.message = Some(
+            "HackRF firmware USB API 1.06 or newer is required for M0 diagnostics."
+              .to_string(),
+          );
+        }
+      }
+    }
+
+    Some(crate::sdr::TxStreamHealth {
+      recovery_needed,
+      guard_status: Some(self.tx_guard_status.clone()),
+    })
+  }
+
+  fn recover_transmit(&mut self) -> Result<bool> {
+    if self.tx_context.is_none() {
+      return Ok(false);
+    }
+    if self.tx_recovery_attempted {
+      let message =
+        "HackRF TX stream failed again after its one recovery attempt.";
+      self.mark_tx_recovery_failed(message.to_string());
+      return Err(anyhow!(message));
+    }
+    self.tx_recovery_attempted = true;
+    let context = self.tx_context.as_ref().expect("checked TX context").clone();
+    self.stop_transmitting();
+
+    let result = (|| -> Result<()> {
+      if self.requested_center_frequency > 0 {
+        let ret = unsafe {
+          ffi::hackrf_set_freq(
+            self.dev,
+            self.requested_center_frequency as u64,
+          )
+        };
+        if ret != 0 {
+          return Err(anyhow!(
+            "Failed to reapply HackRF frequency during TX recovery (error {ret})"
+          ));
+        }
+      }
+      self.set_sample_rate_inner(self.sample_rate)?;
+      for (ret, label) in [
+        (
+          unsafe { ffi::hackrf_set_lna_gain(self.dev, self.lna_gain) },
+          "LNA gain",
+        ),
+        (
+          unsafe { ffi::hackrf_set_vga_gain(self.dev, self.vga_gain) },
+          "VGA gain",
+        ),
+        (
+          unsafe {
+            ffi::hackrf_set_amp_enable(self.dev, self.amp_enabled as u8)
+          },
+          "RF amplifier",
+        ),
+      ] {
+        if ret != 0 {
+          return Err(anyhow!(
+            "Failed to reapply HackRF {label} during TX recovery (error {ret})"
+          ));
+        }
+      }
+      self.configure_tx_underrun_guard();
+      self.last_callback_failures =
+        context.callback_failures.load(Ordering::Relaxed);
+      let ret = unsafe {
+        ffi::hackrf_start_tx(
+          self.dev,
+          Some(hackrf_tx_callback),
+          Arc::as_ptr(&context) as *mut _,
+        )
+      };
+      if ret != 0 {
+        return Err(anyhow!(
+          "Failed to restart HackRF TX stream during recovery (error {ret})"
+        ));
+      }
+      self.tx_started = true;
+      self.tx_started_at = Some(Instant::now());
+      self.last_tx_diagnostic_at = None;
+      self.last_m0_count = None;
+      Ok(())
+    })();
+
+    if let Err(error) = result {
+      self.mark_tx_recovery_failed(error.to_string());
+      return Err(error);
+    }
+    self.last_error = None;
+    log::warn!("HackRF TX stream recovered once; continuing with last IQ buffer");
+    Ok(true)
   }
 
   fn enter_standby(&mut self) -> Result<()> {
@@ -605,17 +955,20 @@ impl SdrDevice for HackRfDevice {
   fn set_lna_gain(&mut self, gain: f64) -> Result<()> {
     let lna = (((gain / 8.0).round() * 8.0).clamp(0.0, 40.0)) as u32;
     let _ = unsafe { ffi::hackrf_set_lna_gain(self.dev, lna) };
+    self.lna_gain = lna;
     Ok(())
   }
 
   fn set_vga_gain(&mut self, gain: f64) -> Result<()> {
     let vga = (((gain / 2.0).round() * 2.0).clamp(0.0, 62.0)) as u32;
     let _ = unsafe { ffi::hackrf_set_vga_gain(self.dev, vga) };
+    self.vga_gain = vga;
     Ok(())
   }
 
   fn set_amp_enable(&mut self, enabled: bool) -> Result<()> {
     let _ = unsafe { ffi::hackrf_set_amp_enable(self.dev, enabled as u8) };
+    self.amp_enabled = enabled;
     Ok(())
   }
 
@@ -695,7 +1048,7 @@ impl SdrDevice for HackRfDevice {
   }
 
   fn is_rx_active(&self) -> bool {
-    if self.dev.is_null() {
+    if self.dev.is_null() || self.tx_started {
       return false;
     }
     unsafe { ffi::hackrf_is_streaming(self.dev) == 1 }
@@ -807,6 +1160,15 @@ mod tests {
       audio_tap: AudioIqTap::new(),
       tx_context: None,
       tx_started: false,
+      tx_guard_status: initial_tx_guard_status(None),
+      tx_started_at: None,
+      last_tx_diagnostic_at: None,
+      last_m0_count: None,
+      last_callback_failures: 0,
+      tx_recovery_attempted: false,
+      lna_gain: 0,
+      vga_gain: 0,
+      amp_enabled: false,
       streaming_started: false,
       serial_number: String::new(),
       native_session_active: false,
@@ -836,6 +1198,15 @@ mod tests {
       audio_tap: AudioIqTap::new(),
       tx_context: None,
       tx_started: false,
+      tx_guard_status: initial_tx_guard_status(None),
+      tx_started_at: None,
+      last_tx_diagnostic_at: None,
+      last_m0_count: None,
+      last_callback_failures: 0,
+      tx_recovery_attempted: false,
+      lna_gain: 0,
+      vga_gain: 0,
+      amp_enabled: false,
       streaming_started: false,
       serial_number: String::new(),
       native_session_active: false,

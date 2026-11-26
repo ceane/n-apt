@@ -1,4 +1,4 @@
-import React, { useRef, useEffect } from "react";
+import React, { useRef, useEffect, useState } from "react";
 import styled from "styled-components";
 import { Loader2 } from "lucide-react";
 import type { SourceMode } from "@n-apt/spectrum/hooks/useSpectrumStore";
@@ -183,6 +183,93 @@ const DevicePillMeta = styled.div`
   line-height: 1.3;
 `;
 
+const GuardNoticeButton = styled.button<{ $active?: boolean }>`
+  justify-self: start;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: ${({ theme, $active }) =>
+    $active ? theme.success ?? theme.primary : theme.warning};
+  font: inherit;
+  font-size: 9px;
+  line-height: 1.25;
+  text-align: left;
+  cursor: ${({ $active }) => ($active ? "default" : "pointer")};
+  text-decoration: ${({ $active }) => ($active ? "none" : "underline")};
+`;
+
+const GuardModalBackdrop = styled.div`
+  position: fixed;
+  inset: 0;
+  z-index: 10000;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+  background: rgba(0, 0, 0, 0.68);
+`;
+
+const GuardModal = styled.div`
+  width: min(520px, 100%);
+  max-height: min(80vh, 700px);
+  overflow: auto;
+  padding: 20px;
+  border: 1px solid ${({ theme }) => theme.borderHover};
+  border-radius: 14px;
+  background: ${({ theme }) => theme.surface};
+  color: ${({ theme }) => theme.textPrimary};
+  box-shadow: 0 20px 70px rgba(0, 0, 0, 0.45);
+  font-family: ${({ theme }) => theme.typography.mono};
+  font-size: 12px;
+  line-height: 1.5;
+
+  h2 {
+    margin: 0 0 10px;
+    font-family: ${({ theme }) => theme.typography.sans};
+    font-size: 17px;
+  }
+
+  p,
+  ol {
+    margin: 10px 0;
+  }
+
+  a {
+    color: ${({ theme }) => theme.primary};
+  }
+`;
+
+const GuardModalFooter = styled.div`
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 16px;
+`;
+
+const GuardModalCloseButton = styled.button`
+  padding: 7px 12px;
+  border: 1px solid ${({ theme }) => theme.borderHover};
+  border-radius: 8px;
+  background: ${({ theme }) => theme.surface};
+  color: ${({ theme }) => theme.textPrimary};
+  font: inherit;
+  cursor: pointer;
+`;
+
+type TxUnderrunGuard = {
+  state: string;
+  usb_api_version?: number;
+  threshold_bytes?: number;
+  shortfalls?: number;
+  longest_shortfall_bytes?: number;
+  message?: string;
+};
+
+const formatUsbApiVersion = (version?: number) =>
+  version === undefined
+    ? "unknown"
+    : `${(version >> 8).toString(16)}.${(version & 0xff)
+        .toString(16)
+        .padStart(2, "0")}`;
+
 const DeviceStatusDot = styled.span<{
   $active?: boolean;
   $loading?: boolean;
@@ -366,6 +453,7 @@ interface SourceInputProps {
     duplex_mode?: string | null;
     active_duplex_mode?: string | null;
     active_duplex_modes?: string[] | null;
+    tx_underrun_guard?: TxUnderrunGuard | null;
     summary?: string;
     status?: {
       color?: string;
@@ -425,6 +513,10 @@ export const SourceInput: React.FC<SourceInputProps> = ({
   txBindingSourceId,
   txPreviewSourceId,
 }) => {
+  const [guardHelp, setGuardHelp] = useState<{
+    deviceName: string;
+    status: TxUnderrunGuard;
+  } | null>(null);
   const fileSelectionActive = sourceMode === "file";
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [transmittingDotOn, setTransmittingDotOn] = React.useState(true);
@@ -756,6 +848,21 @@ export const SourceInput: React.FC<SourceInputProps> = ({
             const showDeviceSpaceHint =
               isOnscreenStreaming &&
               (actionLabel === "Resume" || actionLabel === "Pause");
+            const guardStatus = device.tx_underrun_guard;
+            const guardNeedsAttention =
+              !!guardStatus &&
+              (guardStatus.state !== "available" &&
+                guardStatus.state !== "active" ||
+                !!guardStatus.message);
+            const guardNotice = guardStatus
+              ? guardNeedsAttention
+                ? guardStatus.state === "active"
+                  ? "TX guard active · diagnostics need update"
+                  : "TX underrun protection unavailable · update help"
+                : guardStatus.state === "active"
+                  ? "TX underrun guard active · 100 ms limit"
+                  : "TX underrun guard ready"
+              : null;
 
             return (
               <DevicePill
@@ -805,6 +912,37 @@ export const SourceInput: React.FC<SourceInputProps> = ({
                       ? ` · ${formatDuplexMode(device.duplex_mode)}`
                       : ""}
                   </DevicePillMeta>
+                  {guardStatus && guardNotice ? (
+                    <GuardNoticeButton
+                      type="button"
+                      $active={!guardNeedsAttention}
+                      aria-label={
+                        guardNeedsAttention
+                          ? "HackRF TX underrun protection unavailable. Open update instructions."
+                          : guardNotice
+                      }
+                      title={
+                        guardStatus.message ??
+                        "HackRF TX underrun protection status"
+                      }
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        if (guardNeedsAttention || guardStatus.message) {
+                          setGuardHelp({
+                            deviceName: device.name,
+                            status: guardStatus,
+                          });
+                        }
+                      }}
+                      onKeyDown={(event) => {
+                        if (event.key === "Enter" || event.key === " ") {
+                          event.stopPropagation();
+                        }
+                      }}
+                    >
+                      {guardNotice}
+                    </GuardNoticeButton>
+                  ) : null}
                 </DevicePillMain>
                 <DeviceActions>
                   {device.status?.loading ? (
@@ -1071,6 +1209,85 @@ export const SourceInput: React.FC<SourceInputProps> = ({
           ) : null}
         </DevicePills>
       </DevicePicker>
+      {guardHelp ? (
+        <GuardModalBackdrop
+          role="presentation"
+          onClick={() => setGuardHelp(null)}
+          onKeyDown={(event) => {
+            if (event.key === "Escape") setGuardHelp(null);
+          }}
+        >
+          <GuardModal
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="hackrf-underrun-title"
+            tabIndex={-1}
+            onClick={(event) => event.stopPropagation()}
+          >
+            <h2 id="hackrf-underrun-title">
+              {guardHelp.deviceName} TX underrun protection
+            </h2>
+            <p>
+              {guardHelp.status.message ??
+                "The underrun guard is unavailable. Update the HackRF host software and, if needed, its firmware to enable it."}
+            </p>
+            <p>
+              Device USB API: {formatUsbApiVersion(guardHelp.status.usb_api_version)}
+              {" · Required: 1.06 or newer"}
+            </p>
+            {guardHelp.status.threshold_bytes !== undefined ? (
+              <p>
+                Active limit: {guardHelp.status.threshold_bytes.toLocaleString()} bytes
+                {" (100 ms at the configured sample rate)"}
+              </p>
+            ) : null}
+            {guardHelp.status.shortfalls !== undefined ? (
+              <p>
+                Reported shortfalls: {guardHelp.status.shortfalls}
+                {guardHelp.status.longest_shortfall_bytes !== undefined
+                  ? ` · Longest: ${guardHelp.status.longest_shortfall_bytes} bytes`
+                  : ""}
+              </p>
+            ) : null}
+            <ol>
+              <li>
+                Update the host libhackrf and HackRF tools to a matching
+                current release, then restart N-APT so it loads the updated
+                library.
+              </li>
+              <li>
+                If the device API is older than 1.06, download the matching
+                firmware release and write the HackRF One USB image with{" "}
+                <code>hackrf_spiflash -w hackrf_one_usb.bin</code>. Reset or
+                unplug and reconnect the device, then confirm it with{" "}
+                <code>hackrf_info</code>.
+              </li>
+            </ol>
+            <p>
+              Use the normal <code>.bin</code> firmware update procedure.
+              DFU recovery is only for firmware that is damaged or will not
+              boot.
+            </p>
+            <p>
+              <a
+                href="https://hackrf.readthedocs.io/en/stable/updating_firmware.html"
+                target="_blank"
+                rel="noreferrer"
+              >
+                Official HackRF firmware update instructions
+              </a>
+            </p>
+            <GuardModalFooter>
+              <GuardModalCloseButton
+                type="button"
+                onClick={() => setGuardHelp(null)}
+              >
+                Close
+              </GuardModalCloseButton>
+            </GuardModalFooter>
+          </GuardModal>
+        </GuardModalBackdrop>
+      ) : null}
     </SourceInputWrapper>
   );
 };

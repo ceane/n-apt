@@ -2373,6 +2373,7 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
               : null),
         active_duplex_mode: source.active_duplex_mode,
         active_duplex_modes: source.active_duplex_modes,
+        tx_underrun_guard: source.tx_underrun_guard,
         summary: source.serial_number
           ? `SN ${source.serial_number}`
           : source.manufacturer

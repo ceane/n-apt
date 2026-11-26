@@ -310,6 +310,9 @@ pub(crate) fn activate_source(
             next_device_info,
             next_device_profile,
           );
+          shared_state.set_tx_underrun_guard_status(
+            processor.tx_underrun_guard_status(),
+          );
           if source_id == "mock-tx" {
             shared_state.update_device_usb_strings(
               "mock-tx".to_string(),
@@ -435,6 +438,9 @@ fn restore_previous_source_after_failed_switch(
     !processor.is_mock(),
     processor.get_device_info(),
     build_device_profile(processor.device_type()),
+  );
+  shared_state.set_tx_underrun_guard_status(
+    processor.tx_underrun_guard_status(),
   );
   shared_state.update_device_usb_strings(
     processor.get_serial_number(),
