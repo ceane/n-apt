@@ -1116,6 +1116,16 @@ pub struct HuggingFaceCaptureSaveQuery {
   section: Option<String>,
   modality: Option<String>,
   split: Option<String>,
+  increased_protection: Option<bool>,
+}
+
+#[derive(Debug, Deserialize, Validate)]
+#[serde(rename_all = "camelCase")]
+pub struct CaptureDestinationSaveQuery {
+  pub token: String,
+  #[validate(regex(path = *crate::server::utils::RE_SAFE_ID))]
+  pub job_id: String,
+  pub increased_protection: Option<bool>,
 }
 
 #[derive(Debug, Serialize)]
@@ -1714,8 +1724,8 @@ pub async fn capture_destinations_handler(
   .into_response()
 }
 
-/// POST /api/capture/save/huggingface?token=&jobId=&section=&split=
-/// Encrypts completed capture artifacts before placing them in the local dataset checkout.
+/// POST /api/capture/save/huggingface?token=&jobId=&section=&split=&increasedProtection=
+/// Saves completed capture artifacts, optionally adding per-capture encryption.
 pub async fn save_capture_to_huggingface_handler(
   Query(params): Query<HuggingFaceCaptureSaveQuery>,
   State(state): State<Arc<super::AppState>>,
@@ -1794,13 +1804,12 @@ pub async fn save_capture_to_huggingface_handler(
       }))).into_response();
     }
   };
-  let fido_vault = match artifacts_are_fido_vault(&artifacts).await {
+  let _fido_vault = match artifacts_are_fido_vault(&artifacts).await {
     Ok(value) => value,
     Err(error) => return (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": format!("Invalid capture artifacts: {error}")}))).into_response(),
   };
-  let salt = if fido_vault {
-    None
-  } else {
+  let increased_protection = params.increased_protection.unwrap_or(true);
+  let salt = if increased_protection {
     let protection_key = format!("capture-protection:{}", params.job_id);
     match get_or_create_capture_salt(&state, &protection_key).await {
       Ok(salt) => Some(salt),
@@ -1811,6 +1820,8 @@ pub async fn save_capture_to_huggingface_handler(
         }))).into_response();
       }
     }
+  } else {
+    None
   };
   let mut saved = Vec::new();
   for artifact in &artifacts {
@@ -1825,15 +1836,15 @@ pub async fn save_capture_to_huggingface_handler(
         "error": format!("Failed to create dataset folder: {error}")
       }))).into_response();
     }
-    let write_result = if fido_vault {
-      copy_fido_vault_artifacts_to_directory(std::slice::from_ref(artifact), &directory).await
-    } else {
+    let write_result = if increased_protection {
       write_protected_capture_artifacts_to_directory(
         std::slice::from_ref(artifact),
         &directory,
         &state.shared.encryption_key,
-        salt.as_ref().expect("standard capture salt"),
+        salt.as_ref().expect("increased protection salt"),
       ).await
+    } else {
+      copy_capture_artifacts_verbatim(std::slice::from_ref(artifact), &directory).await
     };
     match write_result {
       Ok(paths) => saved.extend(paths.iter().map(|path| {
@@ -1875,7 +1886,7 @@ pub async fn save_capture_to_huggingface_handler(
         "error": format!("Failed to create dataset metadata folder: {error}")
       }))).into_response();
     }
-    let manifest = if fido_vault {
+    let manifest = if !increased_protection {
       serde_json::json!({
         "format": "n-apt-protected-capture-v1",
         "jobId": params.job_id,
@@ -1923,7 +1934,7 @@ pub async fn save_capture_to_huggingface_handler(
     "destination": "huggingface",
     "section": section,
     "split": params.split,
-    "increasedProtection": !fido_vault,
+    "increasedProtection": increased_protection,
     "files": saved
   })).into_response()
 }
@@ -1992,7 +2003,7 @@ async fn append_classifier_label_to_csv(
 /// POST /api/capture/save/aspect?token=<session_token>&jobId=<job_id>
 /// Copies completed capture artifacts to the configured Aspect mount.
 pub async fn save_capture_to_aspect_handler(
-  Query(params): Query<CaptureDownloadParams>,
+  Query(params): Query<CaptureDestinationSaveQuery>,
   State(state): State<Arc<super::AppState>>,
 ) -> impl IntoResponse {
   if !crate::server::utils::RE_SAFE_ID.is_match(&params.job_id) {
@@ -2057,13 +2068,12 @@ pub async fn save_capture_to_aspect_handler(
       }))).into_response();
     }
   };
-  let fido_vault = match artifacts_are_fido_vault(&artifacts).await {
+  let _fido_vault = match artifacts_are_fido_vault(&artifacts).await {
     Ok(value) => value,
     Err(error) => return (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": format!("Invalid capture artifacts: {error}")}))).into_response(),
   };
-  let write_result = if fido_vault {
-    copy_fido_vault_artifacts_to_directory(&artifacts, &aspect_path).await
-  } else {
+  let increased_protection = params.increased_protection.unwrap_or(true);
+  let write_result = if increased_protection {
     let protection_key = format!("capture-protection:{}", params.job_id);
     let salt = match get_or_create_capture_salt(&state, &protection_key).await {
       Ok(salt) => salt,
@@ -2080,11 +2090,13 @@ pub async fn save_capture_to_aspect_handler(
       &state.shared.encryption_key,
       &salt,
     ).await
+  } else {
+    copy_capture_artifacts_verbatim(&artifacts, &aspect_path).await
   };
   match write_result {
     Ok(saved) => Json(serde_json::json!({
       "destination": "aspect",
-      "increasedProtection": !fido_vault,
+      "increasedProtection": increased_protection,
       "files": saved.iter().filter_map(|path| path.file_name()).map(|name| name.to_string_lossy()).collect::<Vec<_>>()
     })).into_response(),
     Err(error) => {
@@ -2326,7 +2338,7 @@ async fn artifacts_are_fido_vault(
   Ok(found.unwrap_or(false))
 }
 
-async fn copy_fido_vault_artifacts_to_directory(
+async fn copy_capture_artifacts_verbatim(
   artifacts: &[crate::server::types::CaptureArtifact],
   destination: &Path,
 ) -> std::io::Result<Vec<PathBuf>> {
@@ -2365,7 +2377,6 @@ async fn copy_fido_vault_artifacts_to_directory(
   Ok(saved)
 }
 
-#[cfg(test)]
 async fn copy_capture_artifacts_to_directory(
   artifacts: &[crate::server::types::CaptureArtifact],
   destination: &Path,
@@ -4015,6 +4026,7 @@ mod classifier_dataset_label_tests {
       section: Some("classification".into()),
       modality: None,
       split: Some("validation".into()),
+      increased_protection: None,
     };
     let artifacts = vec![
       CaptureArtifact {

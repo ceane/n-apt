@@ -866,6 +866,7 @@ export const IQCaptureControlsSection: React.FC<
   const [captureDestination, setCaptureDestination] = React.useState<CaptureDestinationId>(
     loadCaptureDestinationPreference,
   );
+  const [increasedProtection, setIncreasedProtection] = React.useState(false);
   const [captureFolderName, setCaptureFolderName] = React.useState("");
   const folderPickerAvailable = getCaptureDirectoryPicker() !== null;
   const [destinationMenuOpen, setDestinationMenuOpen] = React.useState(false);
@@ -883,6 +884,18 @@ export const IQCaptureControlsSection: React.FC<
   const [savedCollapsibleOpen] = React.useState(loadIqCaptureOpenState);
   const initialCaptureDestination = React.useRef(captureDestination).current;
   const autoSavedJobs = React.useRef(new Set<string>());
+
+  const captureUsesFidoVault = captureFileType !== ".wav" && captureFidoVault;
+  const captureIsEncrypted =
+    captureFileType === ".napt" ||
+    captureUsesFidoVault ||
+    (captureFileType === ".iq" && captureEncrypted);
+
+  React.useEffect(() => {
+    setIncreasedProtection(
+      captureIsEncrypted && captureDestination === "huggingface",
+    );
+  }, [captureDestination, captureIsEncrypted]);
 
   React.useEffect(() => {
     let active = true;
@@ -1070,6 +1083,9 @@ export const IQCaptureControlsSection: React.FC<
 
   const updateCaptureDestination = (destination: CaptureDestinationId) => {
     setCaptureDestination(destination);
+    if (destination === "huggingface" && captureIsEncrypted) {
+      setIncreasedProtection(true);
+    }
     setDestinationMessage("");
     try {
       window.localStorage.setItem(CAPTURE_DESTINATION_STORAGE_KEY, destination);
@@ -1137,6 +1153,7 @@ export const IQCaptureControlsSection: React.FC<
         const query = new URLSearchParams({
           token: sessionToken ?? "",
           jobId: download.jobId,
+          increasedProtection: String(captureIsEncrypted && increasedProtection),
         });
         const response = await fetch(
           `/api/capture/save/aspect?${query.toString()}`,
@@ -1145,12 +1162,15 @@ export const IQCaptureControlsSection: React.FC<
         const body = (await response.json().catch(() => ({}))) as {
           error?: string;
           files?: string[];
+          increasedProtection?: boolean;
         };
         if (!response.ok) {
           throw new Error(body.error || `Aspect save failed: HTTP ${response.status}`);
         }
         setDestinationMessage(
-          `Saved ${body.files?.join(", ") || filename} to Aspect.`,
+          body.increasedProtection === false
+            ? `Saved ${body.files?.join(", ") || filename} to Aspect without increased protection.`
+            : `Saved ${body.files?.join(", ") || filename} to Aspect with increased protection.`,
         );
         return;
       }
@@ -1160,6 +1180,7 @@ export const IQCaptureControlsSection: React.FC<
           token: sessionToken ?? "",
           jobId: download.jobId,
           section: huggingFaceSection,
+          increasedProtection: String(captureIsEncrypted && increasedProtection),
         });
         const response = await fetch(
           `/api/capture/save/huggingface?${query.toString()}`,
@@ -1175,8 +1196,8 @@ export const IQCaptureControlsSection: React.FC<
         }
         setDestinationMessage(
           body.increasedProtection === false
-            ? `Saved FIDO-vault encrypted ${body.files?.join(", ") || filename} to Hugging Face. Increased protection was not applied.`
-            : `Saved encrypted ${body.files?.join(", ") || filename} to Hugging Face.`,
+            ? `Saved ${body.files?.join(", ") || filename} to Hugging Face without increased protection.`
+            : `Saved ${body.files?.join(", ") || filename} to Hugging Face with increased protection.`,
         );
         return;
       }
@@ -1432,7 +1453,7 @@ export const IQCaptureControlsSection: React.FC<
       autoSavedJobs.current.add(download.jobId);
       void saveCaptureToDestination(download);
     }
-  }, [captureStatus, captureDestination, sessionToken]);
+  }, [captureStatus, captureDestination, sessionToken, captureIsEncrypted, increasedProtection]);
 
   const clearPersistedDownloads = () => {
     setPersistedDownloads([]);
@@ -1510,7 +1531,6 @@ export const IQCaptureControlsSection: React.FC<
           : "Idle";
   const hasSelectedCaptureAreas = activeCaptureAreas.length > 0;
   const isCaptureActive = captureStatus?.status === "started";
-  const captureUsesFidoVault = captureFileType !== ".wav" && captureFidoVault;
   const encryptionLocked =
     captureFileType === ".napt" || captureFileType === ".wav" || captureUsesFidoVault;
   const fidoVaultUnavailable =
@@ -1720,13 +1740,20 @@ export const IQCaptureControlsSection: React.FC<
           <Row
             label={<IconLabel icon={ShieldCheck} text="Increased protection" />}
             tooltipTitle="Per-capture protection"
-            tooltip={captureUsesFidoVault
-              ? "Disabled for FIDO vault captures. They use the FIDO vault key and do not use a Redis protection salt."
-              : "Online copies are encrypted with a unique per-capture salt stored only in Redis. Keep Redis backups; without the matching record the protected copy cannot be decrypted."}
+            tooltip={captureIsEncrypted
+              ? "Optionally encrypt the exported copy with a unique per-capture salt stored only in Redis. Keep Redis backups; without the matching record the protected copy cannot be decrypted. Hugging Face exports enable this by default."
+              : "Turn on capture encryption to use increased protection for exported copies."}
           >
-            <ToggleSwitch $disabled>
-              <ToggleSwitchInput type="checkbox" checked={!captureUsesFidoVault} disabled readOnly />
-              <ToggleSwitchSlider $disabled />
+            <ToggleSwitch>
+              <ToggleSwitchInput
+                type="checkbox"
+                checked={captureIsEncrypted && increasedProtection}
+                onChange={(event) =>
+                  setIncreasedProtection(event.target.checked && captureIsEncrypted)
+                }
+                aria-label="Use increased protection for exported capture"
+              />
+              <ToggleSwitchSlider />
             </ToggleSwitch>
           </Row>
         )}

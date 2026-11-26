@@ -1,6 +1,7 @@
 import React from "react";
 import styled from "styled-components";
 import { Row } from "@n-apt/ui";
+import { RowContainer } from "@n-apt/ui/Row";
 import { FrequencyInput } from "@n-apt/ui/FrequencyInput";
 import { Tooltip } from "@n-apt/ui/Tooltip";
 import {
@@ -78,6 +79,53 @@ const InputGroup = styled.div`
   grid-auto-flow: column;
   align-items: center;
   gap: 4px;
+`;
+
+const PpmCorrectionSettingsGroup = styled.div`
+  grid-column: 1 / -1;
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  overflow: hidden;
+  border: 1px solid
+    ${(props) =>
+      props.theme.mode === "light"
+        ? props.theme.borderHover
+        : props.theme.border};
+  border-radius: 6px;
+  background: ${(props) =>
+    props.theme.mode === "light"
+      ? props.theme.primaryAnchor
+      : props.theme.surface};
+
+  ${RowContainer} {
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+    padding: 8px 0;
+
+    & + ${RowContainer} {
+      position: relative;
+      border-top: 1px solid ${(props) => props.theme.border};
+      background: color-mix(in srgb, ${(props) => props.theme.surface} 92%, black);
+
+      &::before {
+        position: absolute;
+        top: 8px;
+        bottom: 8px;
+        left: 10px;
+        width: 2px;
+        border-radius: 2px;
+        background: ${(props) => props.theme.textSecondary};
+        opacity: 0.35;
+        content: "";
+      }
+
+      > div:first-child {
+        padding-left: 22px;
+      }
+    }
+  }
 `;
 
 const UnitLabel = styled.span`
@@ -462,43 +510,45 @@ export const SourceSettingsSection: React.FC<SourceSettingsSectionProps> = ({
         <SlidersVertical size={14} />
         <SectionText>Source Settings</SectionText>
       </SectionTitle>
-      <Row
-        label={<IconLabel $inheritLineHeight icon={Pipette} text="PPM" />}
-        tooltipTitle="PPM Correction"
-        tooltip={<PpmCorrectionTooltipContent />}
-      >
-        <NarrowSettingInput
-          type="number"
-          aria-label="PPM correction"
-          value={sourceMode === "file" ? stitchSourceSettings.ppm : ppm}
-          onChange={(e) => handlePpmChange(e.target.value)}
-          onKeyDown={handlePpmKeyDown}
-          step="1"
-          min="0"
-        />
-      </Row>
-      {sourceMode === "live" && (
+      <PpmCorrectionSettingsGroup>
         <Row
-          label="Use app frequency correction"
-          tooltipTitle="WebGPU PPM Correction"
-          tooltip={
-            "When enabled, WebGPU applies the PPM correction to IQ samples before the FFT and sends 0 PPM to the hardware. On RTL-SDR, turn this off to use librtlsdr's hardware frequency-correction API. Devices without hardware PPM support keep app correction enabled."
-          }
+          label={<IconLabel $inheritLineHeight icon={Pipette} text="PPM" />}
+          tooltipTitle="PPM Correction"
+          tooltip={<PpmCorrectionTooltipContent />}
         >
-          <ToggleSwitch $disabled={!isConnected || !isRtlSdrLive}>
-            <ToggleSwitchInput
-              type="checkbox"
-              checked={useAppPpmCorrection}
-              onChange={(e) =>
-                onUseAppPpmCorrectionChange?.(e.target.checked)
-              }
-              disabled={!isConnected || !isRtlSdrLive}
-              aria-label="Use app frequency correction"
-            />
-            <ToggleSwitchSlider $disabled={!isConnected || !isRtlSdrLive} />
-          </ToggleSwitch>
+          <NarrowSettingInput
+            type="number"
+            aria-label="PPM correction"
+            value={sourceMode === "file" ? stitchSourceSettings.ppm : ppm}
+            onChange={(e) => handlePpmChange(e.target.value)}
+            onKeyDown={handlePpmKeyDown}
+            step="1"
+            min="0"
+          />
         </Row>
-      )}
+        {sourceMode === "live" && (
+          <Row
+            label="Use app frequency correction"
+            tooltipTitle="WebGPU PPM Correction"
+            tooltip={
+              "When enabled, WebGPU applies the PPM correction to IQ samples before the FFT and sends 0 PPM to the hardware. On RTL-SDR, turn this off to use librtlsdr's hardware frequency-correction API. Devices without hardware PPM support keep app correction enabled."
+            }
+          >
+            <ToggleSwitch $disabled={!isConnected || !isRtlSdrLive}>
+              <ToggleSwitchInput
+                type="checkbox"
+                checked={useAppPpmCorrection}
+                onChange={(e) =>
+                  onUseAppPpmCorrectionChange?.(e.target.checked)
+                }
+                disabled={!isConnected || !isRtlSdrLive}
+                aria-label="Use app frequency correction"
+              />
+              <ToggleSwitchSlider $disabled={!isConnected || !isRtlSdrLive} />
+            </ToggleSwitch>
+          </Row>
+        )}
+      </PpmCorrectionSettingsGroup>
       {!isHackrfLive && (
         <Row
           label={<IconLabel $inheritLineHeight icon={ArrowBigUp} text="Gain" />}
