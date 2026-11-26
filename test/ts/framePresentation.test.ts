@@ -185,7 +185,7 @@ describe("frame presentation policy", () => {
     expect(decision.explicitPlaceholderBlocksFrame).toBe(false);
   });
 
-  it("treats a visible loading placeholder as blocking even with a current frame", () => {
+  it("does not hide the graph overlays when a current frame beats loading", () => {
     const decision = resolveFramePresentation({
       currentFrame: {
         source_id: "source-a",
@@ -204,6 +204,28 @@ describe("frame presentation policy", () => {
     });
 
     expect(decision.showLoadingPlaceholder).toBe(false);
-    expect(decision.hasBlockingVisualPlaceholder).toBe(true);
+    expect(decision.hasBlockingVisualPlaceholder).toBe(false);
+  });
+
+  it("does not hide graph overlays while awaiting metadata for a current frame", () => {
+    const decision = resolveFramePresentation({
+      currentFrame: {
+        source_id: "source-a",
+        waveform: new Float32Array([1, 2]),
+      },
+      expectedSourceId: "source-a",
+      lastPresentedSourceId: "source-a",
+      lastRenderableFrame: null,
+      isStandby: false,
+      awaitingDeviceData: true,
+      isLoadingPlaceholder: false,
+      isDeviceConnected: true,
+      placeholderErrorReason: null,
+      explicitPlaceholderState: null,
+      hasPresentedSpectrumFrame: true,
+    });
+
+    expect(decision.showLoadingPlaceholder).toBe(false);
+    expect(decision.hasBlockingVisualPlaceholder).toBe(false);
   });
 });

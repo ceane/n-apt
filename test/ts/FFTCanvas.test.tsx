@@ -42,6 +42,8 @@ import { NATIVE_CLASSIFIER_DOWNLOADS_STORAGE_KEY } from "@n-apt/classification/n
 const processIqToDbmSpectrumMock = jest.fn(() => new Float32Array([1, 2, 3]));
 const cleanupSpectrumMock = jest.fn();
 const drawSpectrumMock = jest.fn(() => true);
+const mockGridOverlayRenderer = {};
+const mockMarkersOverlayRenderer = {};
 
 const canvasDefaultState = createTestStore().getState();
 const canvasTestState = {
@@ -230,8 +232,8 @@ jest.mock("@n-apt/spectrum/hooks/useWebGPUInit", () => ({
     isInitializingWebGPU: false,
     webgpuDeviceRef: { current: null },
     webgpuFormatRef: { current: null },
-    gridOverlayRendererRef: { current: null },
-    markersOverlayRendererRef: { current: null },
+    gridOverlayRendererRef: { current: mockGridOverlayRenderer },
+    markersOverlayRendererRef: { current: mockMarkersOverlayRenderer },
     spikesOverlayRendererRef: { current: null },
     overlayDirtyRef: { current: { grid: false, markers: false } },
   }),
@@ -241,8 +243,8 @@ jest.mock("@n-apt/spectrum/hooks/useWebGPUInit", () => ({
     webgpuEnabled: false,
     webgpuDeviceRef: { current: null },
     webgpuFormatRef: { current: null },
-    gridOverlayRendererRef: { current: null },
-    markersOverlayRendererRef: { current: null },
+    gridOverlayRendererRef: { current: mockGridOverlayRenderer },
+    markersOverlayRendererRef: { current: mockMarkersOverlayRenderer },
     spikesOverlayRendererRef: { current: null },
     overlayDirtyRef: { current: { grid: false, markers: false } },
   }),
@@ -923,6 +925,41 @@ const testWhenClassifierSourceUnavailable = hasEncryptedClassifierSource
       max: 155,
     });
     expect(onVizPanChange).toHaveBeenCalledWith(0);
+  });
+
+  it("keeps FFT overlays when a current frame arrives before loading clears", async () => {
+    drawSpectrumMock.mockClear();
+    const currentFrame = {
+      source_id: "source",
+      waveform: new Float32Array([1, 2, 3, 4]),
+    };
+
+    render(
+      <TestWrapper>
+        <MemoryRouter>
+          <SpectrumProvider>
+            <ThemeProvider theme={mockTheme}>
+              <FFTCanvas
+                {...defaultProps}
+                dataRef={{ current: currentFrame }}
+                awaitingDeviceData
+              />
+            </ThemeProvider>
+          </SpectrumProvider>
+        </MemoryRouter>
+      </TestWrapper>,
+    );
+
+    await waitFor(() => expect(drawSpectrumMock).toHaveBeenCalled());
+    const calls = drawSpectrumMock.mock.calls as unknown as Array<
+      [{ gridOverlayRenderer?: unknown; markersOverlayRenderer?: unknown }]
+    >;
+    const renderOptions = calls[calls.length - 1]?.[0];
+
+    expect(renderOptions?.gridOverlayRenderer).toBe(mockGridOverlayRenderer);
+    expect(renderOptions?.markersOverlayRenderer).toBe(
+      mockMarkersOverlayRenderer,
+    );
   });
 
   it("shows a loading placeholder with the source label while awaiting data", async () => {

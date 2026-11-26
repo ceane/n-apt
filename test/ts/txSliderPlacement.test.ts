@@ -279,4 +279,27 @@ describe("resolveMockTxTransmitViewSampleRateHz", () => {
       }),
     ).toBe(4_372_000);
   });
+
+  it("widens physical Tx sampling to cover a wider selected Tx bandwidth", () => {
+    expect(
+      resolveMockTxTransmitViewSampleRateHz({
+        isMockTx: false,
+        viewerSampleRateHz: 4_372_000,
+        fallbackSampleRateHz: 4_372_000,
+        txBandwidthHz: 6_270_000,
+      }),
+    ).toBe(6_270_000);
+  });
+
+  it("caps physical Tx sampling at the source maximum", () => {
+    expect(
+      resolveMockTxTransmitViewSampleRateHz({
+        isMockTx: false,
+        viewerSampleRateHz: 8_000_000,
+        fallbackSampleRateHz: 4_372_000,
+        txBandwidthHz: 6_270_000,
+        maxSampleRateHz: 5_000_000,
+      }),
+    ).toBe(5_000_000);
+  });
 });

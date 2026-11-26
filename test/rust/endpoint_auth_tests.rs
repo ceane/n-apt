@@ -304,6 +304,7 @@ async fn test_live_iq_frames_are_encrypted_with_vault_key() {
         data_type: Some("iq_raw".to_string()),
         sample_rate: Some(2_400_000),
         power_scale: None,
+        is_tx_monitor: false,
         iq_data: original_iq.clone(),
         is_tx_preview: None,
       }))

@@ -88,7 +88,10 @@ import {
   MOCK_TX_MIN_MONITOR_SAMPLE_RATE_HZ,
 } from "@n-apt/app/infrastructure/io/sdrSampleRateGuards";
 import { CLIENT_ORIGIN_ID } from "../clientOrigin";
-import { resolveMockTxTransmitViewCenterHz } from "@n-apt/transmit/public/txSliderPlacement";
+import {
+  resolveMockTxTransmitViewCenterHz,
+  resolveMockTxTransmitViewSampleRateHz,
+} from "@n-apt/transmit/public/txSliderPlacement";
 
 export { resolveMockTxTransmitViewCenterHz } from "@n-apt/transmit/public/txSliderPlacement";
 
@@ -1523,6 +1526,59 @@ export const buildManagedTxOptions = (
     overrides.bandwidthHz ?? spectrum.txSampleRateHz ?? 1,
     1,
   );
+  // Power edits rebuild managed options too. Resolve their monitor span from
+  // the active Tx viewport so a stale shared viewer rate cannot clip the IQ.
+  const websocketState = state.websocket ?? state;
+  const txSourceId = resolveManagedTxSourceId({
+    ...websocketState,
+    sourceRouting: state.sourceRouting ?? websocketState.sourceRouting,
+    sourceSelection:
+      state.sourceSelection ?? websocketState.sourceSelection,
+  });
+  const txSource = (websocketState.sources ?? []).find(
+    (source: SourceInfo) => source.id === txSourceId,
+  );
+  const isMockTx = txSource
+    ? isMockTxSource({ id: txSource.id, kind: txSource.kind })
+    : true;
+  const sourceViewRange =
+    isMockTx && txSourceId
+      ? spectrum.sourceViewFrequencyRanges?.[txSourceId]
+      : null;
+  const sourceViewSampleRateHz =
+    sourceViewRange &&
+    Number.isFinite(sourceViewRange.min) &&
+    Number.isFinite(sourceViewRange.max) &&
+    sourceViewRange.max > sourceViewRange.min
+      ? sourceViewRange.max - sourceViewRange.min
+      : null;
+  const sharedViewSampleRateHz =
+    spectrum.frequencyRange &&
+    Number.isFinite(spectrum.frequencyRange.min) &&
+    Number.isFinite(spectrum.frequencyRange.max) &&
+    spectrum.frequencyRange.max > spectrum.frequencyRange.min
+      ? spectrum.frequencyRange.max - spectrum.frequencyRange.min
+      : null;
+  const fallbackViewSampleRateHz =
+    overrides.viewSampleRateHz ??
+    overrides.sampleRateHz ??
+    sourceViewSampleRateHz ??
+    sharedViewSampleRateHz ??
+    sampleRateHz;
+  const preferredViewerSampleRateHz =
+    overrides.viewSampleRateHz ??
+    overrides.sampleRateHz ??
+    (isMockTx
+      ? (sourceViewSampleRateHz ?? spectrum.txViewerSampleRateHz)
+      : spectrum.txViewerSampleRateHz);
+  const viewSampleRateHz =
+    resolveMockTxTransmitViewSampleRateHz({
+      isMockTx,
+      viewerSampleRateHz: preferredViewerSampleRateHz,
+      fallbackSampleRateHz: fallbackViewSampleRateHz,
+      txBandwidthHz: bandwidthHz,
+      maxSampleRateHz: txSource?.sdr?.max_sample_rate,
+    }) ?? sampleRateHz;
   return {
     mode: "tx",
     centerFrequencyHz,
@@ -1533,13 +1589,7 @@ export const buildManagedTxOptions = (
       centerFrequencyHz,
     ),
     viewSampleRateHz: Math.max(
-      wholeHz(
-        overrides.viewSampleRateHz ??
-          overrides.sampleRateHz ??
-          spectrum.txViewerSampleRateHz ??
-          sampleRateHz,
-        sampleRateHz,
-      ),
+      wholeHz(viewSampleRateHz, sampleRateHz),
       MOCK_TX_MIN_MONITOR_SAMPLE_RATE_HZ,
     ),
     signal: String(overrides.signal ?? spectrum.txSignal ?? "wifi"),

@@ -147,18 +147,17 @@ impl ComplexBasebandIQGenerator {
         }
       }
     } else {
-      // OFDM flat-top spectral envelope with steep roll-off edges.
-      // WiFi 802.11ac: 52/64 data+pilot subcarriers ≈ 81% occupied BW.
-      // 5G NR: ~90-93% of channel bandwidth occupied.
-      // The roll-off uses a raised-cosine shape matching real spectral masks,
-      // but starts slightly earlier than the nominal occupied bandwidth so the
-      // visible shoulder is not mistaken for a square-edged block.
-      let passband_edge = if key == "5g" { 0.62 } else { 0.58 };
-      let rolloff_width = if key == "5g" { 0.38 } else { 0.40 };
+      // Model the active OFDM channel near its nominal occupied width, then
+      // taper through the outer guard band. Wi-Fi's active subcarriers occupy
+      // about 81% of the channel; 5G occupies about 90-93%.
+      let (passband_edge, rolloff_width, passband_jitter_db) = match key {
+        "wifi" => (0.81, 0.18, 1.5),
+        "5g" => (0.92, 0.07, 1.8),
+        _ => (0.58, 0.40, 1.5),
+      };
       // Real OFDM channels are not perfectly flat: independently varying
       // subcarrier occupancy and phase keeps the mock from looking like a
       // periodically repeated, vibrating line while preserving its envelope.
-      let passband_jitter_db: f64 = if key == "5g" { 1.8 } else { 1.5 };
 
       for k in 0..num_bins {
         let centered = k as isize - half_bins as isize;

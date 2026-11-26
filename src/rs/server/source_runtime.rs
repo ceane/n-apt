@@ -1025,6 +1025,7 @@ mod tests {
       fft_window: None,
       frame_rate: Some(5),
       gain: None,
+      ..RxStreamOptions::default()
     });
     let mut subscription =
       manager.subscribe(key.clone(), options.clone()).unwrap();

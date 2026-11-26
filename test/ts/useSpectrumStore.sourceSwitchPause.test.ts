@@ -896,6 +896,17 @@ describe("source selection and switch lifecycle", () => {
     ).toBe(false);
   });
 
+  it("does not reapply the previous source's pause while auto-resuming the selected RX source", () => {
+    expect(
+      resolveClientPauseState({
+        localPaused: true,
+        manuallyPaused: false,
+        autoPaused: false,
+        resumedOnSelection: true,
+      }),
+    ).toBe(false);
+  });
+
   it("resumes a backend-paused half-duplex HackRF receiver when selected", () => {
     expect(
       shouldResumePausedRxSourceOnSelection(

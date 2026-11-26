@@ -168,13 +168,32 @@ export const resolveMockTxTransmitViewSampleRateHz = ({
   isMockTx,
   viewerSampleRateHz,
   fallbackSampleRateHz,
+  txBandwidthHz,
+  maxSampleRateHz,
 }: {
   isMockTx: boolean;
   viewerSampleRateHz?: number | null;
   fallbackSampleRateHz?: number | null;
+  txBandwidthHz?: number | null;
+  maxSampleRateHz?: number | null;
 }): number | null => {
   if (!isMockTx) {
-    return fallbackSampleRateHz ?? null;
+    const requestedRates = [
+      viewerSampleRateHz,
+      fallbackSampleRateHz,
+      txBandwidthHz,
+    ].filter(
+      (rate): rate is number =>
+        typeof rate === "number" && Number.isFinite(rate) && rate > 0,
+    );
+    if (requestedRates.length === 0) return null;
+
+    const requestedRateHz = Math.max(...requestedRates);
+    return typeof maxSampleRateHz === "number" &&
+      Number.isFinite(maxSampleRateHz) &&
+      maxSampleRateHz > 0
+      ? Math.min(requestedRateHz, maxSampleRateHz)
+      : requestedRateHz;
   }
   const candidate =
     typeof viewerSampleRateHz === "number" &&

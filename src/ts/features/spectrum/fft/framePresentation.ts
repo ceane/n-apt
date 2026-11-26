@@ -110,11 +110,6 @@ export const resolveFramePresentation = ({
     !!currentExplicitPlaceholderState &&
     currentExplicitPlaceholderState.kind !== "top-bar" &&
     currentExplicitPlaceholderState.kind !== "overlay-only";
-  const hasBlockingVisualPlaceholder =
-    isLoadingPlaceholder ||
-    !!awaitingDeviceData ||
-    showErrorPlaceholder ||
-    hasBlockingExplicitPlaceholder;
   const preservePresentationDuringGap =
     shouldPreservePresentationDuringFrameGap({
       hasPresentedFrame: hasPresentedSpectrumFrame,
@@ -134,6 +129,14 @@ export const resolveFramePresentation = ({
     !hasCurrentSourceFrame &&
     !preservesRetainedPresentation
   );
+  // This flag is consumed by overlay rendering as well as placeholder UI.
+  // Use the resolved presentation decisions: a current frame or retained
+  // snapshot can win over a loading/awaiting state, in which case the graph
+  // is being painted and must keep its grid, axes, and labels too.
+  const hasBlockingVisualPlaceholder =
+    showLoadingPlaceholder ||
+    showErrorPlaceholder ||
+    explicitPlaceholderBlocksFrame;
   const blockingPlaceholderKind: BlockingPlaceholderKind =
     isExplicitStandbyPlaceholder
       ? 1

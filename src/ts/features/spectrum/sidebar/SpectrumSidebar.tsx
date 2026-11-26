@@ -1870,6 +1870,8 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
               kind: source.kind,
             }),
             viewerSampleRateHz: txViewerSampleRateHz,
+            txBandwidthHz: fallbackBandwidthHz,
+            maxSampleRateHz: source.sdr?.max_sample_rate,
             fallbackSampleRateHz: rangeViewSampleRateHz,
           });
         const transmitSettings =
@@ -2016,11 +2018,13 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
   );
 
   const jumpMonitorToTypedTxGeometry = useCallback(
-    (centerHz: number) => {
+    (centerHz: number, txBandwidthHz = txSampleRateHz) => {
       if (!Number.isFinite(centerHz)) return;
       const spanHz = resolveMockTxTransmitViewSampleRateHz({
         isMockTx: isMockTxLiveSource,
         viewerSampleRateHz: txViewerSampleRateHz,
+        txBandwidthHz,
+        maxSampleRateHz: selectedSource?.sdr?.max_sample_rate,
         fallbackSampleRateHz:
           frequencyRange &&
           Number.isFinite(frequencyRange.min) &&
@@ -2047,6 +2051,7 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
       dispatch,
       frequencyRange,
       isMockTxLiveSource,
+      selectedSource?.sdr?.max_sample_rate,
       selectedSourceId,
       txSampleRateHz,
       txViewerSampleRateHz,
@@ -2064,7 +2069,10 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
           sampleRateHz: preset.bandwidthHz,
         }),
       );
-      jumpMonitorToTypedTxGeometry(preset.centerFrequencyHz);
+      jumpMonitorToTypedTxGeometry(
+        preset.centerFrequencyHz,
+        preset.bandwidthHz,
+      );
     },
     [dispatch, jumpMonitorToTypedTxGeometry, txSignalPresets],
   );
@@ -2091,7 +2099,7 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
         );
         dispatch(setTxGeometry({ centerFrequencyHz, sampleRateHz: bandwidthHz }));
         dispatch(setTxViewerSampleRateHz(bandwidthHz));
-        jumpMonitorToTypedTxGeometry(centerFrequencyHz);
+        jumpMonitorToTypedTxGeometry(centerFrequencyHz, bandwidthHz);
         return;
       }
 
@@ -2113,7 +2121,7 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
       if (centerFrequencyHz <= 0 || bandwidthHz <= 0) return;
       dispatch(setTxGeometry({ centerFrequencyHz, sampleRateHz: bandwidthHz }));
       dispatch(setTxViewerSampleRateHz(bandwidthHz));
-      jumpMonitorToTypedTxGeometry(centerFrequencyHz);
+      jumpMonitorToTypedTxGeometry(centerFrequencyHz, bandwidthHz);
     },
     [dispatch, jumpMonitorToTypedTxGeometry],
   );
@@ -2139,6 +2147,8 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
           kind: source.kind,
         }),
         viewerSampleRateHz: txViewerSampleRateHz,
+        txBandwidthHz: txSampleRateHz,
+        maxSampleRateHz: source.sdr?.max_sample_rate,
         fallbackSampleRateHz:
           frequencyRange &&
           Number.isFinite(frequencyRange.min) &&
@@ -3533,12 +3543,12 @@ export const SpectrumSidebar: React.FC<SpectrumSidebarProps> = ({
                 signalOptions={signalOptions}
                 onBandwidthChange={(value) => {
                   dispatch(setTxSampleRateHz(value));
-                  jumpMonitorToTypedTxGeometry(txCenterFrequencyHz);
+                  jumpMonitorToTypedTxGeometry(txCenterFrequencyHz, value);
                 }}
                 onIfftSizeChange={(value) => dispatch(setTxIfftSize(value))}
                 onCenterFrequencyChange={(value) => {
                   dispatch(setTxCenterFrequencyHz(value));
-                  jumpMonitorToTypedTxGeometry(value);
+                  jumpMonitorToTypedTxGeometry(value, txSampleRateHz);
                 }}
                 onPowerDbmChange={(value) => dispatch(setTxPowerDbm(value))}
                 onVgaGainChange={(value) => dispatch(setTxVgaGain(value))}

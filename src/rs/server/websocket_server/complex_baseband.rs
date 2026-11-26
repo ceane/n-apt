@@ -1291,12 +1291,18 @@ mod tests {
           .filter(|(idx, bin)| idx % 32 == 0 && bin.rel_hz.abs() <= 250_000.0)
           .map(|(_, bin)| bin.dbm),
       );
+      let (shoulder_min_hz, shoulder_max_hz) = if signal_name == "5g" {
+        (475_000.0, 495_000.0)
+      } else {
+        (450_000.0, 490_000.0)
+      };
       let shoulder = sorted_dbm(
         spectrum
           .iter()
           .enumerate()
           .filter(|(idx, bin)| {
-            idx % 32 == 0 && (360_000.0..=470_000.0).contains(&bin.rel_hz.abs())
+            idx % 32 == 0
+              && (shoulder_min_hz..=shoulder_max_hz).contains(&bin.rel_hz.abs())
           })
           .map(|(_, bin)| bin.dbm),
       );
@@ -1321,6 +1327,46 @@ mod tests {
       assert!(
         outside_level <= shoulder_level - 12.0,
         "{signal_name} should drop below its shaped shoulder outside the allocated bandwidth: shoulder={shoulder_level:.2} dBm, outside={outside_level:.2} dBm"
+      );
+    }
+  }
+
+  #[test]
+  fn tx_monitor_ofdm_keeps_the_configured_occupied_channel_core_flat() {
+    for (signal_name, core_start, core_end) in
+      [("wifi", 0.72, 0.78), ("5g", 0.82, 0.88)]
+    {
+      let tx_rate_hz = 1_000_000.0;
+      let half_width_hz = tx_rate_hz / 2.0;
+      let frame =
+        synthesize_test_frame(signal_name, tx_rate_hz, TEST_TX_POWER_DBM);
+      let spectrum = spectrum_dbm(&frame, TEST_VIEW_SAMPLE_RATE_HZ);
+      let center = sorted_dbm(
+        spectrum
+          .iter()
+          .enumerate()
+          .filter(|(idx, bin)| {
+            idx % 32 == 0 && bin.rel_hz.abs() <= half_width_hz * 0.30
+          })
+          .map(|(_, bin)| bin.dbm),
+      );
+      let occupied_core = sorted_dbm(
+        spectrum
+          .iter()
+          .enumerate()
+          .filter(|(idx, bin)| {
+            idx % 32 == 0
+              && (half_width_hz * core_start..=half_width_hz * core_end)
+                .contains(&bin.rel_hz.abs())
+          })
+          .map(|(_, bin)| bin.dbm),
+      );
+
+      let center_level = percentile_dbm(&center, 0.60);
+      let occupied_core_level = percentile_dbm(&occupied_core, 0.60);
+      assert!(
+        occupied_core_level >= center_level - 2.5,
+        "{signal_name} should keep its nominal occupied channel core near the flat-top level: center={center_level:.2} dBm, core={occupied_core_level:.2} dBm"
       );
     }
   }
@@ -1401,7 +1447,7 @@ mod tests {
           .enumerate()
           .filter(|(idx, bin)| {
             idx % 32 == 0
-              && (half_width_hz * 0.92..=half_width_hz * 0.99)
+              && (half_width_hz * 0.95..=half_width_hz * 0.99)
                 .contains(&bin.rel_hz.abs())
           })
           .map(|(_, bin)| bin.dbm),

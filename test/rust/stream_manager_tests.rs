@@ -79,6 +79,7 @@ async fn live_retune_publishes_a_complete_frame_without_waiting_for_the_next_tic
     // Make the ordinary frame cadence much longer than the response bound.
     frame_rate: Some(2),
     gain: None,
+    ..RxStreamOptions::default()
   };
   manager.register_source(key.source_id.clone(), capabilities);
   let mut subscription = manager

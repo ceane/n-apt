@@ -842,7 +842,15 @@ export const resolveLiveSourceLifecycle = ({
         "The server was disconnected due to being manually exited or an error.",
     });
   }
-  if (transportPhase === "failed" && transportSourceId === selectedSourceId) {
+  // Source inventory can report a fresh startup/retry as loading before the
+  // transport has published its new phase. Do not let a failure from the
+  // previous stream attempt mask that newer loading state.
+  if (
+    transportPhase === "failed" &&
+    transportSourceId === selectedSourceId &&
+    deviceStatus !== "loading" &&
+    deviceStatus !== "initializing"
+  ) {
     return result("failed", {
       kind: "error",
       sourceLabel: resolvedSourceLabel,

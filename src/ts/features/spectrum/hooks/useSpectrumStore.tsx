@@ -843,11 +843,17 @@ export const resolveClientPauseState = ({
   localPaused,
   manuallyPaused,
   autoPaused,
+  resumedOnSelection = false,
 }: {
   localPaused?: boolean;
   manuallyPaused: boolean;
   autoPaused: boolean;
-}): boolean => localPaused === true || manuallyPaused || autoPaused;
+  /** Ignore the prior render's local pause while committing an auto-resume. */
+  resumedOnSelection?: boolean;
+}): boolean =>
+  resumedOnSelection
+    ? false
+    : localPaused === true || manuallyPaused || autoPaused;
 
 /**
  * Compute a button toggle from client-owned state, not a possibly stale
@@ -995,7 +1001,7 @@ export const LIVE_CONTROL_DEFAULTS = {
   hackrfAmpEnabled: false,
   hackrfBasebandBandwidth: 3_200_000,
   ppm: 1,
-  useAppPpmCorrection: true,
+  useAppPpmCorrection: false,
   tunerAGC: false,
   rtlAGC: false,
 };
@@ -1474,7 +1480,7 @@ export const INITIAL_SPECTRUM_STATE: SpectrumState = {
   hackrfAmpEnabled: true,
   hackrfBasebandBandwidth: null,
   ppm: 0,
-  useAppPpmCorrection: true,
+  useAppPpmCorrection: false,
   tunerAGC: false,
   rtlAGC: false,
   sampleRateHz: 3_200_000,
@@ -2143,10 +2149,10 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
     const isVisualizerRoute = isLiveVisualizerPathname(location.pathname);
 
     const isConnected = useAppSelector((s) => s.websocket.isConnected);
-    const mirrorBelowZero = useAppSelector((s) => s.settings.mirrorIqBasebandBelowZero);
-    const hardwareSpectrumBounds = useAppSelector(
-      (s) => s.demod.hardwareRange,
+    const mirrorBelowZero = useAppSelector(
+      (s) => s.settings.mirrorIqBasebandBelowZero,
     );
+    const hardwareSpectrumBounds = useAppSelector((s) => s.demod.hardwareRange);
     const isPaused = useAppSelector((s) => s.websocket.isPaused);
     const serverPaused = useAppSelector((s) => s.websocket.serverPaused);
     const cryptoCorrupted = useAppSelector((s) => s.websocket.cryptoCorrupted);
@@ -2504,7 +2510,11 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
     ]);
 
     useEffect(() => {
-      if (!selectedSourceId || !selectedSourceViewKey || selectedSource?.id !== selectedSourceId) {
+      if (
+        !selectedSourceId ||
+        !selectedSourceViewKey ||
+        selectedSource?.id !== selectedSourceId
+      ) {
         return;
       }
 
@@ -2537,25 +2547,43 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
                 },
               );
         const previousSourceId = committedViewSourceIdRef.current;
-        const previousSource = websocketSources.find((source) => source.id === previousSourceId);
-        const automaticFallback = previousSourceId !== null &&
-          previousSourceId !== selectedSourceId && selectedSource.kind?.startsWith("mock_apt") &&
-          (!previousSource || ["disconnected", "stale", "error"].includes(previousSource.status ?? "") ||
+        const previousSource = websocketSources.find(
+          (source) => source.id === previousSourceId,
+        );
+        const automaticFallback =
+          previousSourceId !== null &&
+          previousSourceId !== selectedSourceId &&
+          selectedSource.kind?.startsWith("mock_apt") &&
+          (!previousSource ||
+            ["disconnected", "stale", "error"].includes(
+              previousSource.status ?? "",
+            ) ||
             // The active-source event may precede the disconnected inventory.
             // An automatic selection has no user selection intent; recognize
             // it now, before the source view is committed with stale Mock pan.
-            (selectionIntentSourceId === null && activeSourceId === selectedSourceId));
+            (selectionIntentSourceId === null &&
+              activeSourceId === selectedSourceId));
         if (automaticFallback && state.frequencyRange) {
           // A fallback replaces the producer, not the user's coordinate window.
           // Never hydrate an older Mock pan/zoom over the departing live view.
           const span = state.frequencyRange.max - state.frequencyRange.min;
-          const center = (state.frequencyRange.min + state.frequencyRange.max) / 2;
+          const center =
+            (state.frequencyRange.min + state.frequencyRange.max) / 2;
           const allowedPan = (pan: number, zoom: number) =>
-            mirrorBelowZero || center + pan - span / (2 * Math.max(1, zoom)) >= 0 ? pan : 0;
+            mirrorBelowZero ||
+            center + pan - span / (2 * Math.max(1, zoom)) >= 0
+              ? pan
+              : 0;
           restoredState.vizZoom = state.vizZoom;
-          restoredState.vizPanOffset = allowedPan(state.vizPanOffset, state.vizZoom);
+          restoredState.vizPanOffset = allowedPan(
+            state.vizPanOffset,
+            state.vizZoom,
+          );
           restoredState.vizZoomFloor = state.vizZoomFloor;
-          restoredState.vizZoomFloorPan = allowedPan(state.vizZoomFloorPan, state.vizZoomFloor);
+          restoredState.vizZoomFloorPan = allowedPan(
+            state.vizZoomFloorPan,
+            state.vizZoomFloor,
+          );
           Object.assign(
             restoredState,
             normalizePersistedSourceViewState(restoredState, {
@@ -3201,7 +3229,7 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
     const lastLiveSourceIdRef = useRef<string | null>(null);
 
     const syncSelectedSourcePauseState = useCallback(
-      (sourceId: string | null | undefined) => {
+      (sourceId: string | null | undefined, resumedOnSelection = false) => {
         // The client pause is authoritative: the user can stop the stream
         // locally without waiting for (or depending on) the backend. Mirror
         // the client's own intent — the manual/auto latches and the local
@@ -3212,6 +3240,7 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
             localPaused: localSourcePauseOverrides[sourceId],
             manuallyPaused: manualPausedSourceIdsRef.current.has(sourceId),
             autoPaused: autoPausedSourceIdsRef.current.has(sourceId),
+            resumedOnSelection,
           });
         if (manualVisualizerPaused === nextPaused) {
           return;
@@ -3283,7 +3312,7 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
           updateLocalSourcePauseOverride(current, selectedSourceId, false),
         );
         wsConnection.sendPauseCommand(false, selectedSourceId);
-        syncSelectedSourcePauseState(selectedSourceId);
+        syncSelectedSourcePauseState(selectedSourceId, true);
         return;
       }
 
@@ -3301,6 +3330,8 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
           updateLocalSourcePauseOverride(current, selectedSourceId, false),
         );
         wsConnection.sendPauseCommand(false, selectedSourceId);
+        syncSelectedSourcePauseState(selectedSourceId, true);
+        return;
       }
 
       syncSelectedSourcePauseState(selectedSourceId);
@@ -3770,6 +3801,8 @@ const SpectrumProviderReal: React.FC<{ children: React.ReactNode }> = memo(
       const rangeViewSampleRateHz = resolveMockTxTransmitViewSampleRateHz({
         isMockTx: isMockTxControlSource,
         viewerSampleRateHz: reduxSpectrumState.txViewerSampleRateHz,
+        txBandwidthHz: reduxSpectrumState.txSampleRateHz,
+        maxSampleRateHz: controlSource?.sdr?.max_sample_rate,
         fallbackSampleRateHz:
           range &&
           Number.isFinite(range.min) &&

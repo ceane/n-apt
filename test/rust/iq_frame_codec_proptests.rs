@@ -34,6 +34,7 @@ fn arbitrary_spectrum_payload() -> impl Strategy<Value = SpectrumData> {
       data_type: Some("iq_raw".to_string()),
       sample_rate: Some(2_400_000),
       power_scale: None,
+      is_tx_monitor: false,
       iq_data: iq,
       is_tx_preview: Some(false),
     })

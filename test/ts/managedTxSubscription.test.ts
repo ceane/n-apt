@@ -111,6 +111,65 @@ describe("managed Tx subscription pause state", () => {
     expect(afterRxRetune.viewSampleRateHz).toBe(first.viewSampleRateHz);
   });
 
+  it("keeps a physical Tx monitor wide enough after a power update", () => {
+    const state = {
+      spectrum: {
+        txCenterFrequencyHz: 27_235_000,
+        txSampleRateHz: 6_270_000,
+        txViewerSampleRateHz: 3_200_000,
+        frequencyRange: { min: 24_100_000, max: 30_370_000 },
+        txPowerDbm: -12,
+      },
+      websocket: {
+        activeSourceId: "hackrf_one-123",
+        sourceStatuses: { "hackrf_one-123": "transmitting" },
+        sources: [
+          {
+            id: "hackrf_one-123",
+            kind: "hackrf_one",
+            capability: "tx_rx",
+            status: "transmitting",
+            sdr: { max_sample_rate: 20_000_000 },
+          },
+        ],
+      },
+    };
+
+    expect(buildManagedTxOptions(state)).toMatchObject({
+      sampleRateHz: 6_270_000,
+      bandwidthHz: 6_270_000,
+      viewSampleRateHz: 6_270_000,
+    });
+  });
+
+  it("uses the selected Mock Tx viewport instead of a stale global viewer rate", () => {
+    const state = {
+      spectrum: {
+        txCenterFrequencyHz: 27_235_000,
+        txSampleRateHz: 6_270_000,
+        txViewerSampleRateHz: 3_200_000,
+        sourceViewFrequencyRanges: {
+          "mock-tx": { min: 24_100_000, max: 30_370_000 },
+        },
+        txPowerDbm: -12,
+      },
+      websocket: {
+        activeSourceId: "mock-tx",
+        sourceStatuses: { "mock-tx": "transmitting" },
+        sources: [
+          {
+            id: "mock-tx",
+            kind: "mock_tx",
+            capability: "tx",
+            status: "transmitting",
+          },
+        ],
+      },
+    };
+
+    expect(buildManagedTxOptions(state).viewSampleRateHz).toBe(6_270_000);
+  });
+
   it("does not let the waveform rate become the Mock Tx monitor rate", () => {
     const options = buildManagedTxOptions({
       spectrum: {
