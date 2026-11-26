@@ -124,6 +124,7 @@ fn clamp_raw_iq_to_bandwidth(
   rel_center_hz: f64,
   width_bandwidth_hz: f64,
   view_sample_rate_hz: f64,
+  taper_edges: bool,
 ) {
   let sample_count = iq.len();
   if sample_count == 0
@@ -159,7 +160,19 @@ fn clamp_raw_iq_to_bandwidth(
     } else {
       -((sample_count - index) as f64 * bin_width_hz)
     };
-    if (bin_hz - rel_center_hz).abs() > half_width_hz + guard_hz {
+    let distance_hz = (bin_hz - rel_center_hz).abs();
+    if taper_edges {
+      // Keep the inner harmonics and taper the outer 15% of each side.
+      // A rectangular cutoff leaves a shelf of leakage under the comb.
+      let edge_start_hz = half_width_hz * 0.85;
+      if distance_hz >= half_width_hz {
+        *bin = Complex::new(0.0, 0.0);
+      } else if distance_hz > edge_start_hz {
+        let progress =
+          (distance_hz - edge_start_hz) / (half_width_hz - edge_start_hz);
+        *bin *= (0.5 * (1.0 + (std::f64::consts::PI * progress).cos())) as f32;
+      }
+    } else if distance_hz > half_width_hz + guard_hz {
       *bin = Complex::new(0.0, 0.0);
     }
   }
@@ -322,6 +335,7 @@ pub fn synthesize_mock_tx_monitor_iq(
   let sample_rate_hz = view_sample_rate.max(1) as f64;
   let signal_key = canonical_complex_baseband_signal_key(signal_name);
   let is_ofdm = signal_key == "wifi" || signal_key == "5g";
+  let is_d_family = matches!(signal_key.as_str(), "d" | "d_sharp");
   let motion_signal_key = signal_key.clone();
 
   let settings = crate::server::utils::load_mock_tx_settings();
@@ -385,7 +399,7 @@ pub fn synthesize_mock_tx_monitor_iq(
   // frame. A fixed seed makes the cached IFFT block identical forever, so
   // the display can only jiggle from gain/noise even though the signal shape
   // should be changing.
-  let phase_seed = if is_ofdm || signal_key == "d" || signal_key == "d_sharp" {
+  let phase_seed = if is_ofdm || is_d_family {
     frame_seed.wrapping_add(1)
   } else {
     0
@@ -471,6 +485,7 @@ pub fn synthesize_mock_tx_monitor_iq(
       rel_hz,
       effective_bandwidth_hz,
       sample_rate_hz,
+      is_d_family,
     );
 
     // Small render blocks are displayed by their strongest spectral line.
@@ -2674,9 +2689,42 @@ mod tests {
   }
 
   #[test]
+  fn d_family_band_projection_tapers_both_edges() {
+    // An impulse has equal energy in every bin, exposing the projection's
+    // response independently of the harmonic spacing and IQ quantization.
+    let mut iq = vec![Complex::new(0.0, 0.0); 1024];
+    iq[0] = Complex::new(1.0, 0.0);
+    let bin_hz = 1000.0;
+    let center_bin = 37_isize;
+    clamp_raw_iq_to_bandwidth(
+      &mut iq,
+      center_bin as f64 * bin_hz,
+      200_000.0,
+      1024.0 * bin_hz,
+      true,
+    );
+    let mut spectrum: Vec<_> = iq
+      .into_iter()
+      .map(|sample| Complex::new(sample.re as f32, sample.im as f32))
+      .collect();
+    FftPlanner::new().plan_fft_forward(1024).process(&mut spectrum);
+    for side in [-1, 1] {
+      let amplitude = |offset: isize| {
+        let index = (center_bin + side * offset).rem_euclid(1024);
+        spectrum[index as usize].norm()
+      };
+      assert!((amplitude(75) - 1.0).abs() < 1e-5);
+      assert!(amplitude(90) < amplitude(75));
+      assert!(amplitude(95) < amplitude(90));
+      assert!(amplitude(100) < 1e-5);
+      assert!(amplitude(101) < 1e-5);
+    }
+  }
+
+  #[test]
   fn test_clamp_raw_iq_to_bandwidth() {
     let mut iq = vec![Complex::new(1.0, 1.0); 1024];
-    clamp_raw_iq_to_bandwidth(&mut iq, 0.0, 100_000.0, 1_000_000.0);
+    clamp_raw_iq_to_bandwidth(&mut iq, 0.0, 100_000.0, 1_000_000.0, false);
 
     let mut iq_f32: Vec<Complex<f32>> = iq
       .iter()
