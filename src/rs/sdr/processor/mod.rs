@@ -2612,8 +2612,9 @@ mod hackrf_settings_tests {
     assert_eq!(patch["fft_window"], "Blackman");
     assert_eq!(patch["gain"], 15.0);
     assert_eq!(patch["ppm"], 2);
+    assert_eq!(patch["app_ppm"], 2);
     assert_eq!(patch["frame_rate_hz"], 10);
-    assert_eq!(patch.len(), 7);
+    assert_eq!(patch.len(), 8);
     assert!(changed_capture_options_patch(&after, &after).is_empty());
   }
 

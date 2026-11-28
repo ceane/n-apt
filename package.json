@@ -92,6 +92,7 @@
     "test:shader": "npm run test:shader:fixtures && npx vitest run --globals --root . test/ts/shaders/*.test.ts",
     "test:shader:fixtures": "node scripts/shaders/generate-test-fixtures.mjs",
     "test:rust": "cargo test --profile dev-incremental",
+    "diagnose:hackrf": "tsx scripts/test/hackrf-led-diagnostic.tsx",
     "test:e2e": "playwright test",
     "test:e2e:encrypted-ml": "playwright test --config=playwright.encrypted-ml.config.ts",
     "test:all": "npm run test && npm run test:security-scripts && npm run test:rust && npm run test:integration && npm run test:e2e && npm run test:e2e:encrypted-ml",

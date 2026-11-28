@@ -122,6 +122,10 @@ name = "live_stream_test"
 path = "src/rs/bin/live_stream_test.rs"
 
 [[bin]]
+name = "hackrf_manual_control"
+path = "src/rs/bin/hackrf_manual_control.rs"
+
+[[bin]]
 name = "dump_config"
 path = "src/rs/bin/dump_config.rs"
 
