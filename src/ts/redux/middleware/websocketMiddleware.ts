@@ -1453,7 +1453,7 @@ export const buildManagedRxOptions = (
             overrides.useAppPpmCorrection ??
             state.spectrum?.useAppPpmCorrection ??
             settings.use_app_ppm_correction ??
-            true,
+            false,
         }
       : {}),
     tunerAgc: overrides.tunerAgc ?? settings.tuner_agc,

@@ -349,7 +349,7 @@ const initialState: SpectrumState = {
   hackrfBasebandBandwidth: 3_200_000,
   basebandFilterPinned: false,
   ppm: 1,
-  useAppPpmCorrection: true,
+  useAppPpmCorrection: false,
   tunerAGC: false,
   rtlAGC: false,
   sampleRateHz: 3_200_000,

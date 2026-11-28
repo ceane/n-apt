@@ -242,7 +242,7 @@ export const SourceSettingsSection: React.FC<SourceSettingsSectionProps> = ({
   deviceType,
   disabled = false,
   ppm,
-  useAppPpmCorrection = true,
+  useAppPpmCorrection = false,
   gain,
   hackrfLnaGain = 0.0,
   hackrfVgaGain = 30,
