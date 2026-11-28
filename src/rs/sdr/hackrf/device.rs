@@ -30,14 +30,19 @@ struct RxContext {
   tx: Sender<Vec<u8>>,
 }
 struct TxContext {
-  iq: Mutex<Vec<u8>>,
+  iq: Mutex<Arc<Vec<u8>>>,
   callback_count: AtomicU64,
   callback_failures: AtomicU64,
   max_callback_duration_us: AtomicU64,
 }
 
 impl TxContext {
+  #[cfg(test)]
   fn new(iq: Vec<u8>) -> Self {
+    Self::new_shared(Arc::new(iq))
+  }
+
+  fn new_shared(iq: Arc<Vec<u8>>) -> Self {
     Self {
       iq: Mutex::new(iq),
       callback_count: AtomicU64::new(0),
@@ -47,6 +52,10 @@ impl TxContext {
   }
 
   fn replace_iq(&self, iq: Vec<u8>) {
+    self.replace_iq_shared(Arc::new(iq));
+  }
+
+  fn replace_iq_shared(&self, iq: Arc<Vec<u8>>) {
     *self
       .iq
       .lock()
@@ -59,6 +68,7 @@ impl TxContext {
       .iq
       .lock()
       .unwrap_or_else(|poisoned| poisoned.into_inner())
+      .as_ref()
       .clone()
   }
 }
@@ -69,6 +79,16 @@ fn prepare_hackrf_tx_payload(samples: &[u8]) -> Vec<u8> {
     payload.push(0);
   }
   payload
+}
+
+fn prepare_hackrf_tx_payload_shared(
+  samples: Arc<Vec<u8>>,
+) -> Arc<Vec<u8>> {
+  if samples.len() % 2 == 0 {
+    samples
+  } else {
+    Arc::new(prepare_hackrf_tx_payload(samples.as_slice()))
+  }
 }
 
 fn should_resume_rx_after_tx_stop(
@@ -263,7 +283,8 @@ extern "C" fn hackrf_tx_callback(transfer: *mut ffi::HackRfTransfer) -> c_int {
     let iq = context
       .iq
       .lock()
-      .unwrap_or_else(|poisoned| poisoned.into_inner());
+      .unwrap_or_else(|poisoned| poisoned.into_inner())
+      .clone();
     if iq.is_empty() {
       return Err(());
     }
@@ -273,7 +294,8 @@ extern "C" fn hackrf_tx_callback(transfer: *mut ffi::HackRfTransfer) -> c_int {
         transfer.buffer_length as usize,
       )
     };
-    crate::tx::repeat_iq_payload_into(&iq, output).map_err(|_| ())?;
+    crate::tx::repeat_iq_payload_into(iq.as_slice(), output)
+      .map_err(|_| ())?;
     transfer.valid_length = output.len() as c_int;
     Ok(())
   }));
@@ -498,6 +520,41 @@ impl HackRfDevice {
     }
   }
 
+  fn start_transmitting_payload(
+    &mut self,
+    payload: Arc<Vec<u8>>,
+  ) -> Result<()> {
+    if payload.is_empty() {
+      return Err(anyhow!("HackRF TX requires I/Q samples"));
+    }
+    self.configure_tx_underrun_guard();
+    let context = Arc::new(TxContext::new_shared(payload));
+    let ret = unsafe {
+      ffi::hackrf_start_tx(
+        self.dev,
+        Some(hackrf_tx_callback),
+        Arc::as_ptr(&context) as *mut _,
+      )
+    };
+    if ret != 0 {
+      self.tx_guard_status.state = "start_failed".to_string();
+      self.tx_guard_status.message = Some(format!(
+        "Could not start HackRF TX stream (libhackrf error {ret})."
+      ));
+      return Err(anyhow!(
+        "Failed to start HackRF One TX streaming (error code: {})",
+        ret
+      ));
+    }
+    self.last_callback_failures = 0;
+    self.tx_context = Some(context);
+    self.tx_started = true;
+    self.tx_started_at = Some(Instant::now());
+    self.last_tx_diagnostic_at = None;
+    self.last_m0_count = None;
+    Ok(())
+  }
+
   fn configure_tx_underrun_guard(&mut self) {
     let api = *ffi::extended_api();
     let Some(set_limit) = api.set_tx_underrun_limit else {
@@ -616,34 +673,7 @@ impl SdrDevice for HackRfDevice {
         self.stop_streaming();
         self.tx_recovery_attempted = false;
         let payload = prepare_hackrf_tx_payload(samples);
-        if payload.is_empty() {
-          return Err(anyhow!("HackRF TX requires I/Q samples"));
-        }
-        self.configure_tx_underrun_guard();
-        let context = Arc::new(TxContext::new(payload));
-        let ret = unsafe {
-          ffi::hackrf_start_tx(
-            self.dev,
-            Some(hackrf_tx_callback),
-            Arc::as_ptr(&context) as *mut _,
-          )
-        };
-        if ret != 0 {
-          self.tx_guard_status.state = "start_failed".to_string();
-          self.tx_guard_status.message = Some(format!(
-            "Could not start HackRF TX stream (libhackrf error {ret})."
-          ));
-          return Err(anyhow!(
-            "Failed to start HackRF One TX streaming (error code: {})",
-            ret
-          ));
-        }
-        self.last_callback_failures = 0;
-        self.tx_context = Some(context);
-        self.tx_started = true;
-        self.tx_started_at = Some(Instant::now());
-        self.last_tx_diagnostic_at = None;
-        self.last_m0_count = None;
+        self.start_transmitting_payload(Arc::new(payload))?;
       }
       None => {
         let was_transmitting = self.tx_started;
@@ -661,6 +691,19 @@ impl SdrDevice for HackRfDevice {
     Ok(())
   }
 
+  fn transmit_iq_shared(
+    &mut self,
+    samples: Option<Arc<Vec<u8>>>,
+  ) -> Result<()> {
+    let Some(samples) = samples else {
+      return self.transmit_iq(None);
+    };
+    self.stop_transmitting();
+    self.stop_streaming();
+    self.tx_recovery_attempted = false;
+    self.start_transmitting_payload(prepare_hackrf_tx_payload_shared(samples))
+  }
+
   fn update_transmit_iq(&mut self, samples: &[u8]) -> Result<()> {
     let Some(context) = self.tx_context.as_ref() else {
       return Err(anyhow!("HackRF TX is not active"));
@@ -670,6 +713,20 @@ impl SdrDevice for HackRfDevice {
       return Err(anyhow!("HackRF TX requires I/Q samples"));
     }
     context.replace_iq(payload);
+    Ok(())
+  }
+
+  fn update_transmit_iq_shared(
+    &mut self,
+    samples: Arc<Vec<u8>>,
+  ) -> Result<()> {
+    let Some(context) = self.tx_context.as_ref() else {
+      return Err(anyhow!("HackRF TX is not active"));
+    };
+    if samples.is_empty() {
+      return Err(anyhow!("HackRF TX requires I/Q samples"));
+    }
+    context.replace_iq_shared(prepare_hackrf_tx_payload_shared(samples));
     Ok(())
   }
 
@@ -1205,6 +1262,22 @@ mod tests {
     assert_eq!(buffer, [0; 4]);
     assert_eq!(transfer.valid_length, 0);
     assert_eq!(context.callback_count.load(Ordering::Relaxed), 0);
+  }
+
+  #[test]
+  fn aligned_shared_payload_is_retained_without_a_full_copy() {
+    let original = Arc::new(vec![1, 2, 3, 4]);
+
+    let prepared = prepare_hackrf_tx_payload_shared(original.clone());
+
+    assert!(Arc::ptr_eq(&original, &prepared));
+  }
+
+  #[test]
+  fn odd_shared_payload_is_padded_before_being_stored() {
+    let prepared = prepare_hackrf_tx_payload_shared(Arc::new(vec![1, 2, 3]));
+
+    assert_eq!(prepared.as_slice(), &[1, 2, 3, 0]);
   }
 
   #[test]

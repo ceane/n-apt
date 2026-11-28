@@ -1241,6 +1241,12 @@ impl WebSocketServer {
       stream_manager.clone(),
       _broadcast_tx.clone(),
     );
+    let tx_health_monitor_task =
+      crate::tx::monitor::spawn_tx_health_monitor(
+        shared_state.clone(),
+        sdr_processor.clone(),
+        _broadcast_tx.clone(),
+      );
     let mut warm_devices: HashMap<String, Box<dyn crate::sdr::SdrDevice>> =
       HashMap::new();
 
@@ -1832,6 +1838,10 @@ impl WebSocketServer {
     }
 
     self.source_runtime_manager.stop_all();
+    tx_health_monitor_task.abort();
+    let _ = tx_health_monitor_task.await;
+    tx_monitor_task.abort();
+    let _ = tx_monitor_task.await;
     // Release the exclusive USB SDR before teardown. hackrf_close() stops the
     // native stream and tells the firmware to stop; without it the device keeps
     // streaming and the next backend cannot claim the interface
@@ -1844,8 +1854,6 @@ impl WebSocketServer {
       }
     }
     self.shared_state.mark_device_released();
-    tx_monitor_task.abort();
-    let _ = tx_monitor_task.await;
     Ok(())
   }
 

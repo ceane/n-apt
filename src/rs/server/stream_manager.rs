@@ -885,12 +885,27 @@ impl StreamingSourceModeManager {
     sample_rate_hz: u32,
     iq_data: Vec<u8>,
   ) {
+    self.set_tx_payload_shared(
+      key,
+      center_frequency_hz,
+      sample_rate_hz,
+      Arc::new(iq_data),
+    );
+  }
+
+  pub fn set_tx_payload_shared(
+    &self,
+    key: StreamKey,
+    center_frequency_hz: u64,
+    sample_rate_hz: u32,
+    iq_data: Arc<Vec<u8>>,
+  ) {
     self.inner.tx_payloads.lock().unwrap().insert(
       key,
       TxStreamPayload {
         center_frequency_hz,
         sample_rate_hz,
-        iq_data: Arc::new(iq_data),
+        iq_data,
       },
     );
   }
@@ -1583,5 +1598,22 @@ mod tests {
     let mut keys = manager.tx_stream_keys();
     keys.sort_by(|left, right| left.source_id.cmp(&right.source_id));
     assert_eq!(keys, vec![hackrf, mock_tx]);
+  }
+
+  #[test]
+  fn shared_tx_payload_keeps_the_same_iq_allocation() {
+    let manager = StreamingSourceModeManager::new(Duration::from_millis(10));
+    let key = StreamKey::new("hackrf-one", StreamMode::Tx);
+    let iq = Arc::new(vec![1, 2, 3, 4]);
+
+    manager.set_tx_payload_shared(
+      key.clone(),
+      100_000_000,
+      2_400_000,
+      iq.clone(),
+    );
+
+    let stored = manager.tx_payload(&key).unwrap();
+    assert!(Arc::ptr_eq(&iq, &stored.iq_data));
   }
 }

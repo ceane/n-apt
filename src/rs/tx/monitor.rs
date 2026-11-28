@@ -56,6 +56,86 @@ pub(crate) fn should_broadcast_tx_status(
   is_mock_tx_device || matches!(active_kind, "mock_tx" | "hackrf_one")
 }
 
+const TX_HEALTH_POLL_INTERVAL: std::time::Duration =
+  std::time::Duration::from_millis(100);
+
+/// Poll the physical HackRF independently from the display monitor stream.
+pub(crate) fn spawn_tx_health_monitor(
+  shared_state: Arc<SharedState>,
+  processor: Arc<Mutex<SdrProcessor>>,
+  broadcast_tx: broadcast::Sender<String>,
+) -> tokio::task::JoinHandle<()> {
+  tokio::spawn(async move {
+    let mut ticker = tokio::time::interval(TX_HEALTH_POLL_INTERVAL);
+    ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+    loop {
+      ticker.tick().await;
+      if shared_state.shutdown.load(Ordering::Relaxed) {
+        break;
+      }
+      if !crate::safety::TX_TRANSMITTING.load(Ordering::Relaxed) {
+        continue;
+      }
+      let active_source = active_source_id(&shared_state);
+      if active_source != "hackrf_one"
+        && !active_source.starts_with("hackrf_one-")
+      {
+        continue;
+      }
+
+      let mut processor = processor.lock().await;
+      let mut failure = None;
+      match processor.poll_transmit_health() {
+        Some(health) => {
+          if let Some(status) = health.guard_status {
+            if shared_state.set_tx_underrun_guard_status(Some(status)) {
+              broadcast_device_status(&shared_state, &broadcast_tx);
+            }
+          }
+          if health.recovery_needed {
+            match processor.recover_transmit() {
+              Ok(true) => {
+                log::warn!(
+                  "HackRF TX stream stopped; one bounded recovery succeeded"
+                );
+                if shared_state.set_tx_underrun_guard_status(
+                  processor.tx_underrun_guard_status(),
+                ) {
+                  broadcast_device_status(&shared_state, &broadcast_tx);
+                }
+              }
+              Ok(false) => {
+                failure = Some(
+                  "HackRF TX stream stopped without a recoverable IQ buffer."
+                    .to_string(),
+                );
+              }
+              Err(error) => failure = Some(error.to_string()),
+            }
+          }
+        }
+        None => {
+          failure = Some(
+            "HackRF TX health monitoring lost the active IQ context."
+              .to_string(),
+          );
+        }
+      }
+
+      if let Some(error) = failure {
+        let _ = processor.transmit_iq(None);
+        crate::safety::TX_TRANSMITTING.store(false, Ordering::Relaxed);
+        shared_state.set_device_backend_error(Some(error));
+        shared_state.set_device_state("stale", Some("restart"));
+        shared_state.set_tx_underrun_guard_status(
+          processor.tx_underrun_guard_status(),
+        );
+        broadcast_device_status(&shared_state, &broadcast_tx);
+      }
+    }
+  })
+}
+
 #[cfg(test)]
 mod status_tests {
   #[test]
@@ -128,11 +208,13 @@ pub(crate) fn spawn_monitor_stream(
                 }
       } else if let Some(payload) = stream_manager.tx_payload(&tx_key) {
         let iq_data = if tx_key.source_id.starts_with("hackrf_one") {
-          let next_iq = synthesize_next_hardware_tx_iq(
-            &shared_state,
-            (payload.iq_data.len() / 2).max(256),
-            payload.center_frequency_hz,
-            payload.sample_rate_hz,
+          let next_iq = crate::tx::into_iq_aligned_arc(
+            synthesize_next_hardware_tx_iq(
+              &shared_state,
+              (payload.iq_data.len() / 2).max(256),
+              payload.center_frequency_hz,
+              payload.sample_rate_hz,
+            ),
           );
           let Some(processor) = processor.as_ref() else {
             let error =
@@ -144,48 +226,12 @@ pub(crate) fn spawn_monitor_stream(
             continue;
           };
           let mut processor = processor.lock().await;
-          let mut failure = None;
-          if let Some(health) = processor.poll_transmit_health() {
-            if let Some(status) = health.guard_status {
-              if shared_state.set_tx_underrun_guard_status(Some(status)) {
-                broadcast_device_status(&shared_state, &broadcast_tx);
-              }
-            }
-            if health.recovery_needed {
-              match processor.recover_transmit() {
-                Ok(true) => {
-                  log::warn!(
-                    "HackRF TX stream stopped; one bounded recovery succeeded"
-                  );
-                  if shared_state.set_tx_underrun_guard_status(
-                    processor.tx_underrun_guard_status(),
-                  ) {
-                    broadcast_device_status(&shared_state, &broadcast_tx);
-                  }
-                }
-                Ok(false) => {
-                  failure = Some(
-                    "HackRF TX stream stopped without a recoverable IQ buffer."
-                      .to_string(),
-                  );
-                }
-                Err(error) => failure = Some(error.to_string()),
-              }
-            }
-          } else {
-            failure = Some(
-              "HackRF TX health monitoring lost the active IQ context."
-                .to_string(),
+          if let Err(error) =
+            processor.update_transmit_iq_shared(next_iq.clone())
+          {
+            let error = format!(
+              "HackRF rejected the next IQ block: {error}"
             );
-          }
-          if failure.is_none() {
-            if let Err(error) = processor.update_transmit_iq(&next_iq) {
-              failure = Some(format!(
-                "HackRF rejected the next IQ block: {error}"
-              ));
-            }
-          }
-          if let Some(error) = failure {
             let _ = processor.transmit_iq(None);
             crate::safety::TX_TRANSMITTING
               .store(false, Ordering::Relaxed);
@@ -197,13 +243,13 @@ pub(crate) fn spawn_monitor_stream(
             broadcast_device_status(&shared_state, &broadcast_tx);
             continue;
           }
-          stream_manager.set_tx_payload(
+          stream_manager.set_tx_payload_shared(
             tx_key.clone(),
             payload.center_frequency_hz,
             payload.sample_rate_hz,
             next_iq.clone(),
           );
-          next_iq
+          (*next_iq).clone()
         } else {
           (*payload.iq_data).clone()
         };
@@ -223,7 +269,7 @@ pub(crate) fn spawn_monitor_stream(
         frame.timestamp,
         frame.center_frequency_hz.map(|frequency| frequency as u64),
         frame.sample_rate.unwrap_or(1),
-        Arc::new(frame.iq_data.clone()),
+        Arc::new(frame.iq_data),
         false,
       );
       }
@@ -319,7 +365,7 @@ impl TxWorker {
         frame.timestamp,
         frame.center_frequency_hz.map(|frequency| frequency as u64),
         frame.sample_rate.unwrap_or(1),
-        Arc::new(frame.iq_data.clone()),
+        Arc::new(frame.iq_data),
         true,
       );
       return match publish_result {
@@ -597,6 +643,7 @@ impl TxWorker {
             &self.shared_state.mock_tx_phase_accumulator,
           )
         };
+        let iq = crate::tx::into_iq_aligned_arc(iq);
         metrics.increment(crate::performance::CounterKind::FramesProduced, 1);
         metrics.increment(
           crate::performance::CounterKind::Samples,
@@ -613,7 +660,7 @@ impl TxWorker {
             .paused_frame_request_owner()
             .unwrap_or_else(|| active_source_id.clone())
         });
-        self.stream_manager.set_tx_payload(
+        self.stream_manager.set_tx_payload_shared(
           StreamKey::new(payload_source, StreamMode::Tx),
           center_hz.min(u32::MAX as f64) as u64,
           sample_rate,
@@ -624,7 +671,7 @@ impl TxWorker {
             metrics,
             crate::performance::Stage::TxDeviceWrite,
           );
-          processor.transmit_iq(Some(&iq))?;
+          processor.transmit_iq_shared(Some(iq))?;
         }
         metrics.increment(crate::performance::CounterKind::FramesConsumed, 1);
       } else {

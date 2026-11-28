@@ -14,6 +14,7 @@
 use crate::signal_port::fft::types::RawSamples;
 use anyhow::Result;
 use serde::Serialize;
+use std::sync::Arc;
 #[cfg(has_hackrf)]
 use std::thread;
 #[cfg(has_hackrf)]
@@ -112,10 +113,30 @@ pub trait SdrDevice: Send {
     Err(anyhow::anyhow!("This SDR does not support transmission"))
   }
 
+  /// Start or stop transmission from an immutable shared IQ payload.
+  /// Devices without a zero-copy implementation use the borrowed API.
+  fn transmit_iq_shared(
+    &mut self,
+    samples: Option<Arc<Vec<u8>>>,
+  ) -> Result<()> {
+    match samples {
+      Some(samples) => self.transmit_iq(Some(samples.as_slice())),
+      None => self.transmit_iq(None),
+    }
+  }
+
   /// Replace the active TX payload without restarting the device callback.
   /// Devices that do not support a live payload swap retain the default error.
   fn update_transmit_iq(&mut self, _samples: &[u8]) -> Result<()> {
     Err(anyhow::anyhow!("This SDR does not support live TX payload updates"))
+  }
+
+  /// Replace the active payload from an immutable shared IQ buffer.
+  fn update_transmit_iq_shared(
+    &mut self,
+    samples: Arc<Vec<u8>>,
+  ) -> Result<()> {
+    self.update_transmit_iq(samples.as_slice())
   }
 
   /// Report physical TX underrun protection when this device supports it.
